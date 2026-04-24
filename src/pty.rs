@@ -8,8 +8,8 @@
 // This is the foundation of the entire emulator.
 // Without this, we have no shell to talk to.
 
-use std::os::unix::io::{RawFd, AsRawFd};
-use nix::pty::{openpty, Winsize};
+use std::os::unix::io::{RawFd, AsRawFd}; //RawFd = integer representing a Unix file descriptor
+use nix::pty::{openpty, Winsize}; //openpty() creates a PTY pair.(master, slave)
 use nix::unistd::{fork, ForkResult, setsid, dup2, execvp};
 use std::ffi::CString;
 use thiserror::Error;
@@ -28,7 +28,11 @@ pub enum PtyError {
 }
 
 /// Owns the PTY master file descriptor.
-/// Drop closes it automatically — RAII.
+/// Drop closes it automatically — RAII.(Resource Acquisition Is Initialization).
+///RAII is a programming paradigm where a resource's lifecycle is strictly tied to an object's lifetime:
+///Acquisition: You acquire a resource (open a file, allocate memory) inside the constructor or creation function (like spawn_shell()). The resulting object owns that resource.
+///Initialization: The object is now ready to use.
+///Release: When the object goes out of scope and is destroyed, its destructor automatically runs to release the resource.
 pub struct PtyMaster {
     pub fd: RawFd,
 }
