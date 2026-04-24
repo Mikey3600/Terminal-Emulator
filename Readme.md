@@ -1,4 +1,4 @@
-# terminal_emulator
+# Terminal_emulator
  
 A terminal emulator written from scratch in Rust. Implements PTY creation, ANSI escape code parsing, a screen grid renderer, keyboard input handling, a scrollback ring buffer, and TOML-based configuration — all wired together with an async Tokio event loop.
  
