@@ -1,0 +1,15 @@
+[package]
+name = "terminal_emulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+crossterm = "0.27"
+nix = { version = "0.29", features = ["process", "signal", "fs", "term"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "1"
+log = "0.4"
+libc = "0.2"
+env_logger = "0.11"
