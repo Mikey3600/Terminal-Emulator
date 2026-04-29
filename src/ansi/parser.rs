@@ -14,7 +14,7 @@
 // Bytes arrive piecemeal — we cannot wait for a complete sequence.
 // Solution: a state machine that consumes one byte at a time.
 
-use crate::grid::{Color, Grid};
+use crate::terminal::screen_buffer::{Attributes, Color, EraseMode, Grid};
 
 /// The parser's current state. Each variant represents a position
 /// in the recognition of an escape sequence.
@@ -88,7 +88,7 @@ impl Parser {
             0x0a => { // LF — newline
                 grid.cursor_row += 1;
                 if grid.cursor_row >= grid.rows {
-                    grid.scroll_up();
+                    grid.scroll_up(1);
                     grid.cursor_row = grid.rows - 1;
                 }
             }
@@ -200,23 +200,14 @@ impl Parser {
             }
             b'J' => { // Erase in Display
                 match p(0, 0) {
-                    0 => { // from cursor to end of screen
-                        grid.clear_line_from_cursor();
-                        for r in (grid.cursor_row + 1)..grid.rows {
-                            for c in 0..grid.cols {
-                                if let Some(cell) = grid.get_mut(r, c) {
-                                    *cell = crate::grid::Cell::default();
-                                    cell.dirty = true;
-                                }
-                            }
-                        }
-                    }
-                    2 => grid.clear(), // entire screen
+                    0 => grid.erase_display(EraseMode::ToEnd),
+                    1 => grid.erase_display(EraseMode::ToStart),
+                    2 => grid.erase_display(EraseMode::All),
                     _ => {}
                 }
             }
             b'K' => { // Erase in Line
-                if p(0, 0) == 0 { grid.clear_line_from_cursor(); }
+                if p(0, 0) == 0 { grid.erase_line(EraseMode::ToEnd); }
             }
             b'm' => self.apply_sgr(grid),
             _ => {} // unimplemented command — ignore
@@ -226,14 +217,14 @@ impl Parser {
     /// SGR — Select Graphic Rendition. Applies color and text style.
     fn apply_sgr(&mut self, grid: &mut Grid) {
         if self.params.is_empty() {
-            grid.current_attrs = crate::grid::Attributes::default();
+            grid.current_attrs = Attributes::default();
             return;
         }
         let mut i = 0;
         while i < self.params.len() {
             let code = self.params[i];
             match code {
-                0  => grid.current_attrs = crate::grid::Attributes::default(),
+                0  => grid.current_attrs = Attributes::default(),
                 1  => grid.current_attrs.bold = true,
                 3  => grid.current_attrs.italic = true,
                 4  => grid.current_attrs.underline = true,
