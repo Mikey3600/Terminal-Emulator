@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Fixed-capacity ring buffer used for scrollback-like history.
 //!
 //! The emulator needs bounded memory while still preserving recently scrolled
