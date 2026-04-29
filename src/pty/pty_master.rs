@@ -27,7 +27,8 @@
 use std::os::unix::io::{RawFd, AsRawFd};
 use nix::pty::{openpty, Winsize};
 use nix::unistd::{fork, ForkResult, setsid, dup2, execvp, Pid};
-use nix::sys::wait::{waitpid, WaitOptions};  // for the caller to reap child
+use nix::sys::wait::waitpid;
+
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
 use thiserror::Error;
