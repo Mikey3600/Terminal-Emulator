@@ -145,11 +145,7 @@ pub struct TermSize {
 impl TermSize {
     /// Typical 80×24 terminal — a safe default for testing.
     pub fn default_vt100() -> Self {
-        Self {
-            rows: 24,
-            cols: 80,
-            shell: None,
-        }
+        Self { rows: 24, cols: 80, shell: None }
     }
 }
 
@@ -187,6 +183,9 @@ impl TermSize {
 /// Old code used `mem::forget` but that leaks fds if fork() returns an error
 /// between the forget and the fork call.
 pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
+    log::info!("pty_spawn_shell rows={} cols={}", size.rows, size.cols);
+    // Extensibility note: this Unix PTY path can be abstracted behind a backend trait
+    // to support a Windows ConPTY implementation without changing parser/renderer APIs.
     let winsize = Winsize {
         ws_row: size.rows,
         ws_col: size.cols,
@@ -212,10 +211,8 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
     //   - bash doesn't exist on Alpine Linux (uses ash)
     //   - users may prefer zsh, fish, etc.
     //   - /bin/sh is the POSIX-guaranteed fallback
-    let shell_path = size
-        .shell
-        .or_else(|| std::env::var("SHELL").ok())
-        .unwrap_or_else(|| "/bin/sh".to_string());
+    let shell_path =
+        size.shell.or_else(|| std::env::var("SHELL").ok()).unwrap_or_else(|| "/bin/sh".to_string());
     let shell_cstr = CString::new(shell_path.clone()).map_err(|_| {
         PtyError::IoFailed(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -237,6 +234,7 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
         // on PtyMaster in the child, which would close master_fd that
         // the parent is still using.
         ForkResult::Child => {
+            log::debug!("pty_child_process_initializing");
             // Become the leader of a new process session.
             // This is required before we can make the PTY slave our
             // "controlling terminal". Without this, TIOCNOTTY fails.
@@ -277,16 +275,13 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // execvp returned — something went wrong (shell not found, not
             // executable, out of memory). Print to stderr then exit.
             // We can't return PtyError from the child — there's no caller.
-            eprintln!(
-                "pty: execvp('{}') failed: {}",
-                shell_path,
-                std::io::Error::last_os_error()
-            );
+            eprintln!("pty: execvp('{}') failed: {}", shell_path, std::io::Error::last_os_error());
             std::process::exit(1);
         }
 
         // ── Parent process ───────────────────────────────────────────────
         ForkResult::Parent { child } => {
+            log::info!("pty_parent_spawned_child pid={}", child);
             // Parent doesn't use the slave side — close it now.
             // If we don't close it, the master fd will never get EOF
             // when the child exits (because the parent itself holds
@@ -301,10 +296,7 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // slave's ManuallyDrop is fine; we just closed it via libc.
             // (ManuallyDrop never runs Drop, so no double-close risk.)
 
-            Ok(PtyMaster {
-                fd: master_fd,
-                child_pid: child,
-            })
+            Ok(PtyMaster { fd: master_fd, child_pid: child })
         }
     }
 }
@@ -319,12 +311,7 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
 ///
 /// Internally this issues a `TIOCSWINSZ` ioctl on the master fd.
 pub fn resize_pty(master: &PtyMaster, size: TermSize) -> Result<(), PtyError> {
-    let winsize = Winsize {
-        ws_row: size.rows,
-        ws_col: size.cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
+    let winsize = Winsize { ws_row: size.rows, ws_col: size.cols, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: TIOCSWINSZ is a well-defined ioctl for PTY fds.
     // master.fd is valid as long as PtyMaster is alive.
     let ret = unsafe { libc::ioctl(master.fd, libc::TIOCSWINSZ, &winsize as *const Winsize) };
@@ -450,11 +437,7 @@ mod tests {
     /// This test requires a Unix environment with /bin/sh.
     #[test]
     fn test_spawn_and_echo() {
-        let size = TermSize {
-            rows: 24,
-            cols: 80,
-            shell: None,
-        };
+        let size = TermSize { rows: 24, cols: 80, shell: None };
         let master = spawn_shell(size).expect("spawn_shell failed");
 
         // Send a command followed by carriage return (Enter in PTY land)
@@ -474,11 +457,7 @@ mod tests {
                 }
             }
         }
-        assert!(
-            output.contains("hello_pty"),
-            "expected echo output, got: {:?}",
-            output
-        );
+        assert!(output.contains("hello_pty"), "expected echo output, got: {:?}", output);
 
         // Send exit and reap
         let _ = write_to_pty(&master, b"exit\r");
@@ -487,21 +466,9 @@ mod tests {
 
     #[test]
     fn test_resize() {
-        let master = spawn_shell(TermSize {
-            rows: 24,
-            cols: 80,
-            shell: None,
-        })
-        .expect("spawn shell in test");
-        resize_pty(
-            &master,
-            TermSize {
-                rows: 50,
-                cols: 200,
-                shell: None,
-            },
-        )
-        .expect("resize failed");
+        let master =
+            spawn_shell(TermSize { rows: 24, cols: 80, shell: None }).expect("spawn shell in test");
+        resize_pty(&master, TermSize { rows: 50, cols: 200, shell: None }).expect("resize failed");
         let _ = write_to_pty(&master, b"exit\r");
         let _ = reap_child(&master);
     }

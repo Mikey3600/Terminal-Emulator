@@ -8,11 +8,7 @@ pub struct AnsiCapabilities {
 }
 impl Default for AnsiCapabilities {
     fn default() -> Self {
-        Self {
-            ansi_core: true,
-            xterm_extended: true,
-            osc: true,
-        }
+        Self { ansi_core: true, xterm_extended: true, osc: true }
     }
 }
 
@@ -46,6 +42,7 @@ impl Parser {
         }
     }
     pub fn feed(&mut self, bytes: &[u8], grid: &mut Grid) {
+        log::debug!("parser_feed_bytes={}", bytes.len());
         for &b in bytes {
             self.step(b, grid);
         }
@@ -110,8 +107,7 @@ impl Parser {
                 self.seen_digit = true;
             }
             b';' => {
-                self.params
-                    .push(if self.seen_digit { self.current } else { 0 });
+                self.params.push(if self.seen_digit { self.current } else { 0 });
                 self.current = 0;
                 self.seen_digit = false;
             }
@@ -139,6 +135,7 @@ impl Parser {
         self.params.get(i).copied().unwrap_or(d)
     }
     fn dispatch(&mut self, f: u8, grid: &mut Grid) {
+        log::trace!("parser_dispatch_final={} params={:?}", f as char, self.params);
         match f {
             b'A' => grid.cursor_row = grid.cursor_row.saturating_sub(self.p(0, 1) as usize),
             b'B' => grid.cursor_row = (grid.cursor_row + self.p(0, 1) as usize).min(grid.rows - 1),

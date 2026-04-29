@@ -91,12 +91,10 @@ impl Config {
     /// $XDG_CONFIG_HOME/terminal_emulator/config.toml,
     /// or ~/.config/terminal_emulator/config.toml as fallback.
     fn config_path() -> PathBuf {
-        let base = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                PathBuf::from(home).join(".config")
-            });
+        let base = std::env::var("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            PathBuf::from(home).join(".config")
+        });
         base.join("terminal_emulator").join("config.toml")
     }
 }
