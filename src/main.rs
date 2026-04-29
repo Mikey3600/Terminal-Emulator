@@ -7,25 +7,43 @@ mod terminal;
 mod utils;
 
 use ansi::Parser;
-use buffer::RingBuffer;
 use config::Config;
-use crossterm::{cursor::MoveTo, terminal::{Clear, ClearType}, ExecutableCommand};
-use pty::{spawn_shell, write_to_pty, TermSize};
-use std::io::stdout;
+use crossterm::{
+    cursor::MoveTo,
+    terminal::{size as terminal_size, Clear, ClearType},
+    ExecutableCommand,
+};
+use pty::{reap_child, resize_pty, spawn_shell, write_to_pty, TermSize};
+use std::io::{stdout, Write};
 use std::sync::Arc;
 use terminal::{render, Grid};
+
+struct TerminalModeGuard;
+
+impl Drop for TerminalModeGuard {
+    fn drop(&mut self) {
+        input::restore_terminal();
+    }
+}
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
     let cfg = Config::load();
-    let master = Arc::new(spawn_shell(TermSize { rows: cfg.rows, cols: cfg.cols }).expect("Failed to spawn shell"));
+    let master = Arc::new(
+        spawn_shell(TermSize {
+            rows: cfg.rows,
+            cols: cfg.cols,
+            shell: Some(cfg.shell.clone()),
+        })
+        .expect("Failed to spawn shell"),
+    );
 
     let mut grid = Grid::new(cfg.rows as usize, cfg.cols as usize);
     let mut parser = Parser::new();
-    let mut _scrollback: RingBuffer<Vec<char>> = RingBuffer::new(1000);
     let mut input_rx = input::spawn_input_task();
+    let _terminal_mode_guard = TerminalModeGuard;
 
     let mut out = stdout();
     out.execute(Clear(ClearType::All)).unwrap();
@@ -40,18 +58,36 @@ async fn main() {
                     pty::read_from_pty(&master, &mut buf).map(|n| (buf, n))
                 }
             }) => {
-                if let Ok(Ok((buf, n))) = result {
-                    if n == 0 { break; }
-                    parser.feed(&buf[..n], &mut grid);
-                    render(&grid, &mut out);
-                    grid.clear_dirty();
+                match result {
+                    Ok(Ok((buf, n))) if n > 0 => {
+                        parser.feed(&buf[..n], &mut grid);
+                        render(&grid, &mut out);
+                        grid.clear_dirty();
+                    }
+                    _ => break,
                 }
             }
-            Some(input::InputBytes(bytes)) = input_rx.recv() => {
-                write_to_pty(&master, &bytes).ok();
+            Some(event) = input_rx.recv() => {
+                match event {
+                    input::InputEvent::Bytes(bytes) => {
+                        let _ = write_to_pty(&master, &bytes);
+                    }
+                    input::InputEvent::Resize(cols, rows) => {
+                        if rows > 0 && cols > 0 {
+                            grid.resize(rows as usize, cols as usize);
+                            let _ = resize_pty(&master, TermSize { rows, cols, shell: None });
+                        }
+                    }
+                }
             }
         }
     }
 
-    input::restore_terminal();
+    let _ = reap_child(&master);
+
+    if let Ok((cols, rows)) = terminal_size() {
+        let _ = out.execute(MoveTo(0, rows.saturating_sub(1)));
+        let _ = out.flush();
+        let _ = (cols, rows);
+    }
 }

@@ -32,12 +32,20 @@ pub struct Config {
 }
 
 fn default_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
-fn default_rows() -> u16 { 24 }
-fn default_cols() -> u16 { 80 }
-fn default_font_size() -> u16 { 14 }
-fn default_scheme() -> String { "dark".to_string() }
+fn default_rows() -> u16 {
+    24
+}
+fn default_cols() -> u16 {
+    80
+}
+fn default_font_size() -> u16 {
+    14
+}
+fn default_scheme() -> String {
+    "dark".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {

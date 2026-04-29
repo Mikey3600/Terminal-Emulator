@@ -1,7 +1,9 @@
 use crate::terminal::screen_buffer::{Color, Grid};
 use crossterm::{
     cursor::MoveTo,
-    style::{Attribute, Color as CrosstermColor, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{
+        Attribute, Color as CrosstermColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+    },
 };
 use std::io::Write;
 
@@ -10,7 +12,14 @@ pub fn render(grid: &Grid, out: &mut impl Write) {
         let _ = crossterm::queue!(out, MoveTo(col as u16, row as u16));
         let _ = crossterm::queue!(out, SetForegroundColor(to_crossterm_color(cell.attrs.fg)));
         let _ = crossterm::queue!(out, SetBackgroundColor(to_crossterm_color(cell.attrs.bg)));
-        let _ = crossterm::queue!(out, SetAttribute(if cell.attrs.bold { Attribute::Bold } else { Attribute::NormalIntensity }));
+        let _ = crossterm::queue!(
+            out,
+            SetAttribute(if cell.attrs.bold {
+                Attribute::Bold
+            } else {
+                Attribute::NormalIntensity
+            })
+        );
         let _ = write!(out, "{}", cell.ch);
     }
 
