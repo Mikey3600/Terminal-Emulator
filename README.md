@@ -272,3 +272,12 @@ Current architecture intentionally leaves room for:
 - backend abstraction for Windows ConPTY support
 
 These are additive enhancements aligned with the existing event-driven subsystem boundaries.
+
+
+## 16) Repository Health Checklist
+
+- Documentation: `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md` are present.
+- Cargo setup: `Cargo.toml` and `Cargo.lock` are present for reproducible Rust builds.
+- Tests & benches: parser fixtures, PTY replay tests, and parser renderer benchmarks are present under `tests/` and `benches/`.
+- Project scope: currently focused on a Unix-like PTY-driven terminal core rather than a full GUI terminal emulator.
+
