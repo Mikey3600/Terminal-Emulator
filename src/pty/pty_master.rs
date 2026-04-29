@@ -445,7 +445,11 @@ mod tests {
     /// This test requires a Unix environment with /bin/sh.
     #[test]
     fn test_spawn_and_echo() {
-        let size = TermSize { rows: 24, cols: 80, shell: None };
+        let size = TermSize {
+            rows: 24,
+            cols: 80,
+            shell: None,
+        };
         let master = spawn_shell(size).expect("spawn_shell failed");
 
         // Send a command followed by carriage return (Enter in PTY land)
@@ -478,7 +482,12 @@ mod tests {
 
     #[test]
     fn test_resize() {
-        let master = spawn_shell(TermSize { rows: 24, cols: 80, shell: None }).unwrap();
+        let master = spawn_shell(TermSize {
+            rows: 24,
+            cols: 80,
+            shell: None,
+        })
+        .unwrap();
         resize_pty(
             &master,
             TermSize {
