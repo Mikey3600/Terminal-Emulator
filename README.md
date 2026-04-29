@@ -215,3 +215,60 @@ src/
 ## 11) Conclusion
 
 The project has a solid systems-core design and is well-positioned for iterative hardening. With stronger compatibility testing, Unicode correctness guarantees, and CI/release/security discipline, this can evolve from a strong prototype into a production-capable terminal engine.
+
+---
+
+## 12) Developer Setup (Quick Start)
+
+1. Clone the repo and install stable Rust (`rustup toolchain install stable`).
+2. Run local quality checks before opening a PR:
+   - `cargo fmt -- --check`
+   - `cargo clippy --all-targets --all-features -- -D warnings`
+   - `cargo test`
+   - `cargo build`
+3. See `CONTRIBUTING.md` for contributor workflow and `SECURITY.md` for vulnerability reporting.
+
+Editor defaults are provided via `.editorconfig`, and Rust formatting defaults are pinned in `rustfmt.toml`.
+
+---
+
+## 13) Architecture Diagram
+
+```text
++------------------+      +--------------------+      +-------------------+
+| Input subsystem  | ---> | Event loop (tokio) | ---> | PTY master/slave  |
+| keyboard/resize  |      | TerminalEvent mux  |      | shell process I/O |
++------------------+      +---------+----------+      +---------+---------+
+                                      |                           |
+                                      v                           v
+                            +---------+----------+      +---------+---------+
+                            | ANSI/VT parser     | ---> | Screen Grid model |
+                            | state machine      |      | dirty cell track  |
+                            +---------+----------+      +---------+---------+
+                                      |                           |
+                                      +------------+--------------+
+                                                   v
+                                         +---------+---------+
+                                         | Incremental render |
+                                         | crossterm output   |
+                                         +--------------------+
+```
+
+## 14) Data Flow Notes
+
+- PTY bytes are consumed in frames and fed into parser state transitions.
+- Parser dispatch mutates `Grid` cursor/cell state.
+- Renderer consumes only dirty cells for minimal redraw.
+- Input bytes are encoded and forwarded to the PTY write path.
+
+---
+
+## 15) Extensibility Notes
+
+Current architecture intentionally leaves room for:
+- mouse input events (new `TerminalEvent` variants and parser dispatch wiring)
+- richer OSC sequence handling (clipboard/title/control channels)
+- clipboard integration (event + OSC bridge)
+- backend abstraction for Windows ConPTY support
+
+These are additive enhancements aligned with the existing event-driven subsystem boundaries.

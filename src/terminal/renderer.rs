@@ -9,6 +9,8 @@ use crossterm::{
 use std::io::Write;
 
 pub fn render(grid: &Grid, out: &mut impl Write) -> std::io::Result<()> {
+    let dirty = grid.dirty_cells().len();
+    log::debug!("renderer_dirty_cells={dirty}");
     for (row, col, cell) in grid.dirty_cells() {
         out.queue(MoveTo(col as u16, row as u16))?;
         out.queue(SetForegroundColor(to_crossterm_color(cell.attrs.fg)))?;

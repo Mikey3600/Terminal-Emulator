@@ -155,11 +155,7 @@ pub struct Cell {
 impl Default for Cell {
     /// A plain space with default styling. Represents an empty terminal cell.
     fn default() -> Self {
-        Cell {
-            ch: ' ',
-            attrs: Attributes::default(),
-            dirty: false,
-        }
+        Cell { ch: ' ', attrs: Attributes::default(), dirty: false }
     }
 }
 
@@ -326,11 +322,7 @@ impl Grid {
     /// Panics if `n >= self.rows`. Scrolling by the full height would leave
     /// nothing to copy and is almost certainly a caller bug.
     pub fn scroll_up(&mut self, n: usize) {
-        assert!(
-            n < self.rows,
-            "scroll_up: n ({n}) must be < rows ({})",
-            self.rows
-        );
+        assert!(n < self.rows, "scroll_up: n ({n}) must be < rows ({})", self.rows);
 
         // Shift rows [n..] to [0..rows-n] in one memmove.
         self.cells.copy_within(n * self.cols.., 0);
@@ -366,14 +358,8 @@ impl Grid {
 
         // Build a blank cell with the current background color.
         // All other attributes reset — only bg carries through on erase.
-        let blank = Cell {
-            ch: ' ',
-            attrs: Attributes {
-                bg,
-                ..Attributes::default()
-            },
-            dirty: true,
-        };
+        let blank =
+            Cell { ch: ' ', attrs: Attributes { bg, ..Attributes::default() }, dirty: true };
 
         let range = match mode {
             EraseMode::ToEnd => col..self.cols,
@@ -399,14 +385,8 @@ impl Grid {
         let col = self.cursor_col;
         let bg = self.current_attrs.bg;
 
-        let blank = Cell {
-            ch: ' ',
-            attrs: Attributes {
-                bg,
-                ..Attributes::default()
-            },
-            dirty: true,
-        };
+        let blank =
+            Cell { ch: ' ', attrs: Attributes { bg, ..Attributes::default() }, dirty: true };
 
         // Compute the flat-index range to blank.
         let (start, end) = match mode {
@@ -709,11 +689,7 @@ mod tests {
         let mut g = Grid::new(4, 8);
         g.write_char('Q');
         g.resize(10, 20); // grow
-        assert_eq!(
-            g.get(0, 0).unwrap().ch,
-            'Q',
-            "content should survive resize"
-        );
+        assert_eq!(g.get(0, 0).unwrap().ch, 'Q', "content should survive resize");
     }
 
     #[test]
