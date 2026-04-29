@@ -1,85 +1,113 @@
 # Terminal Emulator (Rust)
 
-A portfolio-grade terminal emulator core implemented in Rust, focused on clean systems design: PTY process management, ANSI parsing, grid state modeling, and incremental rendering.
+A modular terminal emulator core written in Rust, with PTY process management, ANSI/VT parsing, grid state modeling, and incremental rendering.
 
-## Project overview
-This project runs an interactive shell inside a pseudo-terminal (PTY), ingests shell output, parses ANSI/VT escape sequences, updates a screen grid, and renders terminal state to the host console. It is intentionally modular so contributors can extend parser behavior, rendering strategy, or input handling independently.
+## Current maturity snapshot (as of 2026-04-29)
 
-## Architecture
-The runtime is split into five layers:
-1. **Orchestration (`main.rs`)** — initializes config + runtime, wires channels, runs the event loop.
-2. **Transport (`pty/`)** — creates PTY, forks/execs shell, handles read/write/resize, reaps child.
-3. **Protocol (`ansi/`)** — interprets control bytes and escape sequences into screen operations.
-4. **State (`terminal/screen_buffer.rs`)** — owns cells, cursor, dirty-region tracking, resize behavior.
-5. **Presentation (`terminal/renderer.rs`)** — paints only dirty cells for efficient redraws.
+This project is a **strong systems-programming foundation** and a credible portfolio-grade codebase. It is **not yet production-ready** for broad end-user distribution, but it can reach a 2028-ready baseline with targeted hardening in testing, compatibility, security, release engineering, and observability.
 
-## Module structure
-- `src/main.rs` — orchestration layer only.
-- `src/config.rs` — user config loading and defaults.
-- `src/pty/` — PTY master/slave abstractions and process lifecycle.
+## What exists today
+
+- PTY lifecycle management (`openpty`, `fork`, `setsid`, `dup2`, `execvp`) with explicit child reaping.
+- ANSI parser with common control-flow handling and CSI/OSC support.
+- Screen grid model with dirty-cell tracking and efficient redraw behavior.
+- Raw keyboard input pipeline and PTY write path.
+- Config loading via TOML with defaults.
+- Unit/integration-style tests for parser, grid semantics, and PTY behavior.
+
+## 2028 industry-standard readiness assessment
+
+### Overall verdict
+
+- **Architecture quality:** Good
+- **Maintainability:** Good
+- **Core correctness confidence:** Moderate
+- **Production operations readiness:** Early
+- **Security/compliance posture:** Early
+
+### Must-have gaps to close before claiming “2028-ready”
+
+1. **Standards/compliance coverage**
+   - Expand VT/DEC compatibility and add formal conformance fixtures (escape sequence corpus + golden snapshots).
+2. **Unicode correctness**
+   - Proper UTF-8 decoding, grapheme clusters, East Asian width, combining marks, emoji ZWJ handling.
+3. **Cross-platform strategy**
+   - Either implement Windows backend (ConPTY) or explicitly scope platform support and release policy.
+4. **Security hardening**
+   - Add threat model, dependency-vulnerability scanning, SBOM generation, and release artifact signing.
+5. **Observability**
+   - Structured logs, runtime metrics, and reproducible bug-report bundles.
+6. **Release engineering**
+   - CI matrix (OS/toolchain), reproducible builds, semantic versioning policy, changelog discipline.
+7. **Performance and stress validation**
+   - Benchmarks (parser throughput, render latency) and long-run soak tests.
+
+### Recommended roadmap
+
+#### Phase 1 (0–3 months): baseline hardening
+- Enforce `cargo fmt`, `clippy -D warnings`, and `cargo test` in CI.
+- Add platform matrix (Linux/macOS) and minimum supported Rust version policy.
+- Add README security policy section and contribution/testing standards.
+
+#### Phase 2 (3–6 months): correctness + compatibility
+- Add ANSI/VT conformance suite with fixture playback.
+- Add Unicode-aware rendering pipeline and width calculation tests.
+- Add resize (`SIGWINCH`) and alternate screen behavior parity tests.
+
+#### Phase 3 (6–12 months): production readiness
+- Add supply-chain controls (cargo-audit, cargo-deny, SBOM).
+- Add performance benchmarks + regressions gates.
+- Add stable release process (tags, signed artifacts, release notes template).
+
+## Repository structure
+
+- `src/main.rs` — orchestration layer/event loop.
+- `src/pty/` — PTY abstractions and process lifecycle.
 - `src/ansi/` — parser state machine.
-- `src/terminal/` — grid model + renderer.
-- `src/input/` — raw keyboard/resize event pump + key encoding.
-- `src/utils/` — shared utilities/error aliases.
+- `src/terminal/` — grid model and renderer.
+- `src/input/` — keyboard and resize event capture.
+- `src/config.rs` — config loading/defaults.
+- `src/buffer.rs` — ring buffer utility.
 
-## PTY subsystem
-- Allocates PTY pair via `openpty`.
-- Forks the process and `execvp`s configured shell in the child.
-- Child rebinds stdio to PTY slave (`dup2`) and enters its own session (`setsid`).
-- Parent owns the PTY master via RAII wrapper and performs all I/O.
-- Window resize events are forwarded to kernel using `TIOCSWINSZ`.
-- Child process is explicitly reaped to avoid zombies.
+## Build and run
 
-## Terminal rendering pipeline
-1. Read bytes from PTY master.
-2. Feed bytes into ANSI parser.
-3. Parser mutates `Grid` state and marks dirty cells.
-4. Renderer flushes only dirty cells to stdout.
-5. Dirty flags are cleared for next frame.
-
-## Input handling flow
-1. Crossterm raw mode captures key + resize events.
-2. Key events are encoded into terminal byte sequences.
-3. Encoded bytes are sent over channel to main loop.
-4. Main loop writes bytes into PTY master.
-5. Shell responds through PTY output path (rendering pipeline above).
-
-## Installation
 ### Prerequisites
+
 - Rust stable toolchain (`rustup`, `cargo`)
 - Unix-like OS with PTY support (Linux/macOS)
 
-### Setup
+### Commands
+
 ```bash
-git clone <your-fork-url>
-cd Terminal-Emulator
 cargo build
-```
-
-## Run the project
-```bash
 cargo run
-```
-
-## Example commands (inside emulator)
-```text
-echo "hello"
-ls -la
-pwd
-vim README.md
 ```
 
 ## Validation commands
+
 ```bash
-cargo build
-cargo run
-cargo test
+cargo fmt -- --check
 cargo clippy --all-targets --all-features
+cargo test
 ```
 
-## Future improvements
-- Scrollback history with bounded ring buffer integration.
-- Wider ANSI/DEC mode coverage and compliance tests.
-- Alternate screen support + mouse reporting.
-- Better Unicode width/grapheme handling.
-- Renderer abstraction for native GUI backends.
+## Known limitations
+
+- Incomplete terminal compatibility relative to mature emulators.
+- Limited Unicode/rendering completeness for advanced scripts.
+- No hardened release pipeline yet (signing/SBOM/automated security gates).
+
+## README completeness verdict
+
+For a portfolio/research project: **sufficient**.
+
+For a production-grade 2028 claim: **not sufficient unless you maintain these sections continuously**:
+- Security policy and vulnerability disclosure channel.
+- Supported platforms/version policy (including deprecation policy).
+- CI quality gates and release process.
+- Compatibility scope (what ANSI/VT behavior is intentionally unsupported).
+- Performance targets and benchmark methodology.
+
+## License
+
+MIT
