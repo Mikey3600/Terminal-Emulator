@@ -1,85 +1,180 @@
 # Terminal Emulator (Rust)
 
-A portfolio-grade terminal emulator core implemented in Rust, focused on clean systems design: PTY process management, ANSI parsing, grid state modeling, and incremental rendering.
+A terminal emulator core written in Rust that runs a real shell through a PTY, parses ANSI/VT escape sequences, maintains a screen grid, and renders updates efficiently using dirty-cell redraws.
 
-## Project overview
-This project runs an interactive shell inside a pseudo-terminal (PTY), ingests shell output, parses ANSI/VT escape sequences, updates a screen grid, and renders terminal state to the host console. It is intentionally modular so contributors can extend parser behavior, rendering strategy, or input handling independently.
+---
 
-## Architecture
-The runtime is split into five layers:
-1. **Orchestration (`main.rs`)** — initializes config + runtime, wires channels, runs the event loop.
-2. **Transport (`pty/`)** — creates PTY, forks/execs shell, handles read/write/resize, reaps child.
-3. **Protocol (`ansi/`)** — interprets control bytes and escape sequences into screen operations.
-4. **State (`terminal/screen_buffer.rs`)** — owns cells, cursor, dirty-region tracking, resize behavior.
-5. **Presentation (`terminal/renderer.rs`)** — paints only dirty cells for efficient redraws.
+## Overview
 
-## Module structure
-- `src/main.rs` — orchestration layer only.
-- `src/config.rs` — user config loading and defaults.
-- `src/pty/` — PTY master/slave abstractions and process lifecycle.
-- `src/ansi/` — parser state machine.
-- `src/terminal/` — grid model + renderer.
-- `src/input/` — raw keyboard/resize event pump + key encoding.
-- `src/utils/` — shared utilities/error aliases.
+This project focuses on the core runtime of a terminal emulator:
 
-## PTY subsystem
-- Allocates PTY pair via `openpty`.
-- Forks the process and `execvp`s configured shell in the child.
-- Child rebinds stdio to PTY slave (`dup2`) and enters its own session (`setsid`).
-- Parent owns the PTY master via RAII wrapper and performs all I/O.
-- Window resize events are forwarded to kernel using `TIOCSWINSZ`.
-- Child process is explicitly reaped to avoid zombies.
+1. Create and manage a pseudo-terminal (PTY)
+2. Spawn and control an interactive shell process
+3. Read shell output bytes continuously
+4. Parse control/escape sequences into terminal actions
+5. Update in-memory screen state
+6. Render only changed cells to the host terminal
+7. Capture keyboard input in raw mode and forward to shell
 
-## Terminal rendering pipeline
-1. Read bytes from PTY master.
-2. Feed bytes into ANSI parser.
-3. Parser mutates `Grid` state and marks dirty cells.
-4. Renderer flushes only dirty cells to stdout.
-5. Dirty flags are cleared for next frame.
+It is modular and intended to be easy to extend (parser behavior, renderer strategy, input mapping, and config).
 
-## Input handling flow
-1. Crossterm raw mode captures key + resize events.
-2. Key events are encoded into terminal byte sequences.
-3. Encoded bytes are sent over channel to main loop.
-4. Main loop writes bytes into PTY master.
-5. Shell responds through PTY output path (rendering pipeline above).
+---
 
-## Installation
-### Prerequisites
+## Current Features
+
+- **PTY-backed shell session**
+  - Uses Unix PTY primitives to spawn a shell in a child process
+  - Parent process owns PTY master and performs runtime I/O
+  - Handles terminal resize via `TIOCSWINSZ`
+  - Reaps child process to avoid zombies
+
+- **ANSI/VT parser**
+  - Stateful parser for control bytes and escape sequences
+  - Supports cursor motion and positioning CSI commands
+  - Supports erase display/line operations
+  - Supports SGR styling including basic colors, 256-color, and RGB forms
+  - Handles OSC string termination by BEL and `ESC \\`
+
+- **Screen buffer model**
+  - 2D grid of cells with style attributes
+  - Cursor state and bounds-safe movement
+  - Dirty-cell tracking for incremental rendering
+  - Resize behavior preserving overlapping content
+
+- **Renderer**
+  - Renders only modified cells for efficient redraw
+  - Clears dirty markers after each flush
+
+- **Input system**
+  - Raw-mode keyboard event capture
+  - Encodes common keys into terminal byte sequences
+  - Sends encoded input through channels to PTY write path
+
+- **Configuration**
+  - TOML-based config loading with defaults
+  - Configurable shell path and terminal dimensions
+
+- **Test coverage (current)**
+  - Parser tests
+  - Screen buffer behavior tests
+  - PTY spawn/echo and resize tests
+
+---
+
+## Tech Stack
+
+- **Language:** Rust (Edition 2021)
+- **Runtime:** Tokio
+- **Terminal I/O:** Crossterm
+- **PTY + process control:** nix + libc
+- **Config:** serde + toml
+- **Errors:** thiserror
+- **Logging:** log + env_logger
+
+---
+
+## Project Structure
+
+```text
+src/
+├── main.rs                 # App orchestration and event loop
+├── config.rs               # Config structs + loading/default logic
+├── buffer.rs               # Ring buffer utility
+├── ansi/
+│   ├── mod.rs
+│   └── parser.rs           # ANSI/VT parser state machine
+├── input/
+│   ├── mod.rs
+│   └── keyboard.rs         # Raw keyboard capture + encoding
+├── pty/
+│   ├── mod.rs
+│   ├── pty_master.rs       # PTY master lifecycle + read/write/resize
+│   └── pty_slave.rs        # PTY slave setup details
+├── terminal/
+│   ├── mod.rs
+│   ├── screen_buffer.rs    # Grid/cell model and cursor logic
+│   └── renderer.rs         # Incremental terminal rendering
+└── utils/
+    ├── mod.rs
+    └── error.rs            # Shared error types/aliases
+```
+
+---
+
+## How It Works (Data Flow)
+
+1. `main.rs` initializes config and runtime.
+2. PTY layer starts shell and exposes master endpoint.
+3. Output bytes from PTY are streamed to ANSI parser.
+4. Parser mutates `Grid` state in screen buffer.
+5. Renderer paints only dirty cells to stdout.
+6. Keyboard events are encoded and written back to PTY.
+
+---
+
+## Prerequisites
+
 - Rust stable toolchain (`rustup`, `cargo`)
 - Unix-like OS with PTY support (Linux/macOS)
 
-### Setup
+---
+
+## Build, Run, and Validate
+
 ```bash
-git clone <your-fork-url>
-cd Terminal-Emulator
+# Build
 cargo build
-```
 
-## Run the project
-```bash
+# Run
 cargo run
-```
 
-## Example commands (inside emulator)
-```text
-echo "hello"
-ls -la
-pwd
-vim README.md
-```
+# Format check
+cargo fmt -- --check
 
-## Validation commands
-```bash
-cargo build
-cargo run
-cargo test
+# Lints
 cargo clippy --all-targets --all-features
+
+# Tests
+cargo test
 ```
 
-## Future improvements
-- Scrollback history with bounded ring buffer integration.
-- Wider ANSI/DEC mode coverage and compliance tests.
-- Alternate screen support + mouse reporting.
-- Better Unicode width/grapheme handling.
-- Renderer abstraction for native GUI backends.
+---
+
+## Configuration
+
+The project supports TOML configuration (with defaults). Primary fields currently used:
+
+- `shell` — shell binary/path
+- `rows` — terminal row count
+- `cols` — terminal column count
+
+Additional config fields may exist for planned UI/theming expansion.
+
+---
+
+## Current Limitations
+
+- Terminal compatibility is partial compared with mature emulators
+- Advanced Unicode/grapheme-width behavior is not fully complete
+- Feature set is core-focused (no full GUI frontend)
+- Some modules/functions are present but not fully wired into all runtime paths yet
+
+---
+
+## Future Improvements
+
+- Full UTF-8 + grapheme-cluster aware rendering
+- Wider ANSI/DEC compatibility and conformance test corpus
+- Alternate screen buffer support (`smcup` / `rmcup`)
+- Mouse reporting and richer input protocols
+- Scrollback navigation UX improvements
+- Stronger CI gates (`clippy -D warnings`, coverage, benchmark checks)
+- Dependency/security automation (`cargo-audit`, `cargo-deny`)
+- Optional GUI renderer backend
+- Cross-platform strategy expansion (including Windows backend path)
+
+---
+
+## License
+
+MIT
