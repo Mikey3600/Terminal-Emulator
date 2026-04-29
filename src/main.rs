@@ -30,15 +30,18 @@ impl Drop for TerminalModeGuard {
 async fn main() {
     env_logger::init();
 
+    if let Err(err) = run().await {
+        eprintln!("terminal-emulator error: {err}");
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cfg = Config::load();
-    let master = Arc::new(
-        spawn_shell(TermSize {
-            rows: cfg.rows,
-            cols: cfg.cols,
-            shell: Some(cfg.shell.clone()),
-        })
-        .expect("Failed to spawn shell"),
-    );
+    let master = Arc::new(spawn_shell(TermSize {
+        rows: cfg.rows,
+        cols: cfg.cols,
+        shell: Some(cfg.shell.clone()),
+    })?);
 
     let mut grid = Grid::new(cfg.rows as usize, cfg.cols as usize);
     let mut parser = Parser::new();
@@ -46,8 +49,8 @@ async fn main() {
     let _terminal_mode_guard = TerminalModeGuard;
 
     let mut out = stdout();
-    out.execute(Clear(ClearType::All)).unwrap();
-    out.execute(MoveTo(0, 0)).unwrap();
+    out.execute(Clear(ClearType::All))?;
+    out.execute(MoveTo(0, 0))?;
 
     loop {
         tokio::select! {
@@ -85,9 +88,10 @@ async fn main() {
 
     let _ = reap_child(&master);
 
-    if let Ok((cols, rows)) = terminal_size() {
+    if let Ok((_cols, rows)) = terminal_size() {
         let _ = out.execute(MoveTo(0, rows.saturating_sub(1)));
         let _ = out.flush();
-        let _ = (cols, rows);
     }
+
+    Ok(())
 }
