@@ -1,3 +1,9 @@
+//! Dirty-cell renderer.
+//!
+//! The renderer converts logical grid state into concrete `crossterm` drawing
+//! commands. It intentionally repaints only cells marked dirty to minimize I/O,
+//! because terminal writes are often the dominant cost in emulators.
+
 use crate::terminal::screen_buffer::{Color, Grid};
 use crossterm::{
     cursor::MoveTo,
@@ -7,6 +13,10 @@ use crossterm::{
 };
 use std::io::Write;
 
+/// Renders all dirty cells and moves the visible cursor to the grid cursor.
+///
+/// Errors from queued operations are ignored intentionally to keep rendering
+/// best-effort while the main loop remains responsive.
 pub fn render(grid: &Grid, out: &mut impl Write) {
     for (row, col, cell) in grid.dirty_cells() {
         let _ = crossterm::queue!(out, MoveTo(col as u16, row as u16));

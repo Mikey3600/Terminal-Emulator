@@ -1,12 +1,12 @@
-// File: src/config.rs
-// Milestone 6: Configuration loading from TOML
-//
-// We want the user to be able to customize:
-//   - Which shell runs
-//   - Default rows / cols
-//   - Font size (for future GUI rendering)
-//   - Color scheme name
-// without recompiling.
+//! Configuration loading and defaults.
+//!
+//! This module defines user-tunable runtime settings and the policy for where
+//! configuration files are discovered on Unix-like systems. It exists so the
+//! rest of the emulator can depend on a stable `Config` struct instead of
+//! environment variables or hardcoded values.
+//!
+//! Data flow: filesystem TOML -> `serde` deserialization -> validated `Config`
+//! with per-field defaults -> consumed by startup (`main`).
 
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -31,18 +31,23 @@ pub struct Config {
     pub color_scheme: String,
 }
 
+/// Returns the default shell path from `$SHELL` or `/bin/sh`.
 fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
+/// Default terminal height used when no config is provided.
 fn default_rows() -> u16 {
     24
 }
+/// Default terminal width used when no config is provided.
 fn default_cols() -> u16 {
     80
 }
+/// Placeholder default font size for future GUI frontends.
 fn default_font_size() -> u16 {
     14
 }
+/// Default color scheme label used by renderer integrations.
 fn default_scheme() -> String {
     "dark".to_string()
 }

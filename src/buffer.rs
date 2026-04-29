@@ -1,12 +1,8 @@
-// File: src/buffer.rs
-// Milestone 5: Scrollback Ring Buffer
-//
-// When the screen scrolls, the top row is normally lost forever.
-// We don't want that — the user should be able to scroll up
-// to see history. A ring buffer of fixed capacity is perfect:
-//   - O(1) push when a row scrolls off
-//   - O(1) random access by index
-//   - Constant memory — old rows are overwritten when full
+//! Fixed-capacity ring buffer used for scrollback-like history.
+//!
+//! The emulator needs bounded memory while still preserving recently scrolled
+//! rows. A circular buffer gives O(1) append and indexed reads without moving
+//! existing elements, which is ideal for high-frequency terminal scrolling.
 
 /// A fixed-capacity circular buffer. Generic over T so it
 /// can store any kind of row (or anything else, really).
