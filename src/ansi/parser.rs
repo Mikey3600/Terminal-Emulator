@@ -65,27 +65,31 @@ impl Parser {
     /// Process a single byte.
     fn step(&mut self, b: u8, grid: &mut Grid) {
         match self.state {
-            ParserState::Ground              => self.ground(b, grid),
-            ParserState::Escape              => self.escape(b, grid),
-            ParserState::CsiEntry
-            | ParserState::CsiParam          => self.csi(b, grid),
-            ParserState::OscString           => self.osc(b),
-            ParserState::OscEscape           => self.osc_escape(b),
+            ParserState::Ground => self.ground(b, grid),
+            ParserState::Escape => self.escape(b, grid),
+            ParserState::CsiEntry | ParserState::CsiParam => self.csi(b, grid),
+            ParserState::OscString => self.osc(b),
+            ParserState::OscEscape => self.osc_escape(b),
         }
     }
 
     fn ground(&mut self, b: u8, grid: &mut Grid) {
         match b {
             0x1b => self.state = ParserState::Escape, // ESC
-            0x07 => {} // BEL — ignore (or beep)
-            0x08 => { // BS — backspace
-                if grid.cursor_col > 0 { grid.cursor_col -= 1; }
+            0x07 => {}                                // BEL — ignore (or beep)
+            0x08 => {
+                // BS — backspace
+                if grid.cursor_col > 0 {
+                    grid.cursor_col -= 1;
+                }
             }
-            0x09 => { // TAB — advance to next 8-column boundary
+            0x09 => {
+                // TAB — advance to next 8-column boundary
                 let next = ((grid.cursor_col / 8) + 1) * 8;
                 grid.cursor_col = next.min(grid.cols - 1);
             }
-            0x0a => { // LF — newline
+            0x0a => {
+                // LF — newline
                 grid.cursor_row += 1;
                 if grid.cursor_row >= grid.rows {
                     grid.scroll_up(1);
@@ -122,14 +126,17 @@ impl Parser {
         match b {
             b'0'..=b'9' => {
                 // Accumulate digit into current_param
-                self.current_param = self.current_param.saturating_mul(10)
-                    + (b - b'0') as u16;
+                self.current_param = self.current_param.saturating_mul(10) + (b - b'0') as u16;
                 self.has_current = true;
                 self.state = ParserState::CsiParam;
             }
             b';' => {
                 // Parameter separator — push current and reset
-                self.params.push(if self.has_current { self.current_param } else { 0 });
+                self.params.push(if self.has_current {
+                    self.current_param
+                } else {
+                    0
+                });
                 self.current_param = 0;
                 self.has_current = false;
             }
@@ -157,7 +164,7 @@ impl Parser {
         match b {
             0x07 => self.state = ParserState::Ground, // BEL terminator
             0x1b => self.state = ParserState::OscEscape, // possible ST
-            _ => {} // accumulate (ignored)
+            _ => {}                                   // accumulate (ignored)
         }
     }
 
@@ -173,32 +180,36 @@ impl Parser {
     /// Dispatch a completed CSI sequence to the grid.
     /// `final_byte` determines what command this is.
     fn dispatch_csi(&mut self, final_byte: u8, grid: &mut Grid) {
-        let p = |i: usize, default: u16| -> u16 {
-            self.params.get(i).copied().unwrap_or(default)
-        };
+        let p = |i: usize, default: u16| -> u16 { self.params.get(i).copied().unwrap_or(default) };
         match final_byte {
-            b'A' => { // Cursor Up
+            b'A' => {
+                // Cursor Up
                 let n = p(0, 1) as usize;
                 grid.cursor_row = grid.cursor_row.saturating_sub(n);
             }
-            b'B' => { // Cursor Down
+            b'B' => {
+                // Cursor Down
                 let n = p(0, 1) as usize;
                 grid.cursor_row = (grid.cursor_row + n).min(grid.rows - 1);
             }
-            b'C' => { // Cursor Forward
+            b'C' => {
+                // Cursor Forward
                 let n = p(0, 1) as usize;
                 grid.cursor_col = (grid.cursor_col + n).min(grid.cols - 1);
             }
-            b'D' => { // Cursor Back
+            b'D' => {
+                // Cursor Back
                 let n = p(0, 1) as usize;
                 grid.cursor_col = grid.cursor_col.saturating_sub(n);
             }
-            b'H' | b'f' => { // Cursor Position (1-indexed)
+            b'H' | b'f' => {
+                // Cursor Position (1-indexed)
                 let row = (p(0, 1) as usize).saturating_sub(1);
                 let col = (p(1, 1) as usize).saturating_sub(1);
                 grid.move_cursor(row, col);
             }
-            b'J' => { // Erase in Display
+            b'J' => {
+                // Erase in Display
                 match p(0, 0) {
                     0 => grid.erase_display(EraseMode::ToEnd),
                     1 => grid.erase_display(EraseMode::ToStart),
@@ -206,8 +217,11 @@ impl Parser {
                     _ => {}
                 }
             }
-            b'K' => { // Erase in Line
-                if p(0, 0) == 0 { grid.erase_line(EraseMode::ToEnd); }
+            b'K' => {
+                // Erase in Line
+                if p(0, 0) == 0 {
+                    grid.erase_line(EraseMode::ToEnd);
+                }
             }
             b'm' => self.apply_sgr(grid),
             _ => {} // unimplemented command — ignore
@@ -224,12 +238,12 @@ impl Parser {
         while i < self.params.len() {
             let code = self.params[i];
             match code {
-                0  => grid.current_attrs = Attributes::default(),
-                1  => grid.current_attrs.bold = true,
-                3  => grid.current_attrs.italic = true,
-                4  => grid.current_attrs.underline = true,
-                5  => grid.current_attrs.blink = true,
-                7  => grid.current_attrs.reverse = true,
+                0 => grid.current_attrs = Attributes::default(),
+                1 => grid.current_attrs.bold = true,
+                3 => grid.current_attrs.italic = true,
+                4 => grid.current_attrs.underline = true,
+                5 => grid.current_attrs.blink = true,
+                7 => grid.current_attrs.reverse = true,
                 22 => grid.current_attrs.bold = false,
                 23 => grid.current_attrs.italic = false,
                 24 => grid.current_attrs.underline = false,
@@ -247,8 +261,11 @@ impl Parser {
                             // 256-color: needs 1 more param
                             if let Some(&n) = self.params.get(i + 2) {
                                 let c = Color::Indexed(n as u8);
-                                if target_fg { grid.current_attrs.fg = c; }
-                                else         { grid.current_attrs.bg = c; }
+                                if target_fg {
+                                    grid.current_attrs.fg = c;
+                                } else {
+                                    grid.current_attrs.bg = c;
+                                }
                             }
                             i += 2;
                         } else if kind == 2 {
@@ -260,8 +277,11 @@ impl Parser {
                                 let g = self.params[i + 3] as u8;
                                 let b = self.params[i + 4] as u8;
                                 let c = Color::Rgb(r, g, b);
-                                if target_fg { grid.current_attrs.fg = c; }
-                                else         { grid.current_attrs.bg = c; }
+                                if target_fg {
+                                    grid.current_attrs.fg = c;
+                                } else {
+                                    grid.current_attrs.bg = c;
+                                }
                             }
                             i += 4;
                         }
@@ -276,8 +296,14 @@ impl Parser {
 
 fn basic_color(n: u8) -> Color {
     match n {
-        0 => Color::Black,   1 => Color::Red,     2 => Color::Green,  3 => Color::Yellow,
-        4 => Color::Blue,    5 => Color::Magenta,  6 => Color::Cyan,   7 => Color::White,
+        0 => Color::Black,
+        1 => Color::Red,
+        2 => Color::Green,
+        3 => Color::Yellow,
+        4 => Color::Blue,
+        5 => Color::Magenta,
+        6 => Color::Cyan,
+        7 => Color::White,
         _ => Color::Default,
     }
 }

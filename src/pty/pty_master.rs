@@ -24,10 +24,10 @@
 //! process table forever — a "zombie" process. One is harmless; thousands crash
 //! servers. See the `WaitStatus` usage in your session manager.
 
-use std::os::unix::io::{RawFd, AsRawFd};
 use nix::pty::{openpty, Winsize};
-use nix::unistd::{fork, ForkResult, setsid, dup2, execvp, Pid};
 use nix::sys::wait::waitpid;
+use nix::unistd::{dup2, execvp, fork, setsid, ForkResult, Pid};
+use std::os::unix::io::{AsRawFd, RawFd};
 
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
@@ -53,14 +53,6 @@ pub enum PtyError {
     /// We capture errno at the call site so this is actually debuggable.
     #[error("I/O error on PTY master fd: {0}")]
     IoFailed(std::io::Error),
-
-    /// `execvp` returned, meaning the shell binary was not found / not executable.
-    #[error("Failed to exec shell '{shell}': {source}")]
-    ExecFailed {
-        shell: String,
-        #[source]
-        source: nix::Error,
-    },
 }
 
 // ─── PtyMaster ───────────────────────────────────────────────────────────────
@@ -115,7 +107,9 @@ impl Drop for PtyMaster {
         // an AsFd-implementing type, not a RawFd integer.
         // SAFETY: self.fd is a valid open fd that we uniquely own.
         // No other code closes it — that's the entire point of this struct.
-        unsafe { libc::close(self.fd); }
+        unsafe {
+            libc::close(self.fd);
+        }
     }
 }
 
@@ -141,16 +135,21 @@ unsafe impl Sync for PtyMaster {}
 /// The kernel uses this to answer `TIOCGWINSZ` ioctls from the shell,
 /// which is how programs like `vim` and `htop` know how wide to draw.
 /// If you don't set this, the shell defaults to 0×0 and most TUI apps break.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct TermSize {
     pub rows: u16,
     pub cols: u16,
+    pub shell: Option<String>,
 }
 
 impl TermSize {
     /// Typical 80×24 terminal — a safe default for testing.
     pub fn default_vt100() -> Self {
-        Self { rows: 24, cols: 80 }
+        Self {
+            rows: 24,
+            cols: 80,
+            shell: None,
+        }
     }
 }
 
@@ -200,20 +199,23 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
     // on drop. We immediately wrap in ManuallyDrop so we control the lifetime.
     let pty = openpty(Some(&winsize), None).map_err(PtyError::OpenFailed)?;
     let master = ManuallyDrop::new(pty.master);
-    let slave  = ManuallyDrop::new(pty.slave);
+    let slave = ManuallyDrop::new(pty.slave);
 
     // Extract the raw integers. These are just numbers — the actual
     // "file descriptor" is a kernel object; these are just indices into
     // the per-process fd table.
     let master_fd: RawFd = master.as_raw_fd();
-    let slave_fd:  RawFd = slave.as_raw_fd();
+    let slave_fd: RawFd = slave.as_raw_fd();
 
     // Determine which shell to launch.
     // Using $SHELL is better than hardcoding /bin/bash:
     //   - bash doesn't exist on Alpine Linux (uses ash)
     //   - users may prefer zsh, fish, etc.
     //   - /bin/sh is the POSIX-guaranteed fallback
-    let shell_path = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell_path = size
+        .shell
+        .or_else(|| std::env::var("SHELL").ok())
+        .unwrap_or_else(|| "/bin/sh".to_string());
     let shell_cstr = CString::new(shell_path.clone()).expect("shell path contained null byte");
 
     // SAFETY: fork() is inherently unsafe. After fork, the child is a
@@ -253,7 +255,9 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             let max_fd = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as RawFd;
             for fd in 3..max_fd {
                 // Ignore errors — most of these fds won't be open.
-                unsafe { libc::close(fd); }
+                unsafe {
+                    libc::close(fd);
+                }
             }
 
             // execvp replaces this process image with the shell.
@@ -268,8 +272,11 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // execvp returned — something went wrong (shell not found, not
             // executable, out of memory). Print to stderr then exit.
             // We can't return PtyError from the child — there's no caller.
-            eprintln!("pty: execvp('{}') failed: {}", shell_path,
-                      std::io::Error::last_os_error());
+            eprintln!(
+                "pty: execvp('{}') failed: {}",
+                shell_path,
+                std::io::Error::last_os_error()
+            );
             std::process::exit(1);
         }
 
@@ -279,7 +286,9 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // If we don't close it, the master fd will never get EOF
             // when the child exits (because the parent itself holds
             // slave_fd open, keeping the PTY "alive").
-            unsafe { libc::close(slave_fd); }
+            unsafe {
+                libc::close(slave_fd);
+            }
 
             // Also explicitly drop master ManuallyDrop so we don't
             // double-close via its Drop impl later — we're handing off
@@ -287,7 +296,10 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // slave's ManuallyDrop is fine; we just closed it via libc.
             // (ManuallyDrop never runs Drop, so no double-close risk.)
 
-            Ok(PtyMaster { fd: master_fd, child_pid: child })
+            Ok(PtyMaster {
+                fd: master_fd,
+                child_pid: child,
+            })
         }
     }
 }
@@ -303,16 +315,14 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
 /// Internally this issues a `TIOCSWINSZ` ioctl on the master fd.
 pub fn resize_pty(master: &PtyMaster, size: TermSize) -> Result<(), PtyError> {
     let winsize = Winsize {
-        ws_row:    size.rows,
-        ws_col:    size.cols,
+        ws_row: size.rows,
+        ws_col: size.cols,
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
     // SAFETY: TIOCSWINSZ is a well-defined ioctl for PTY fds.
     // master.fd is valid as long as PtyMaster is alive.
-    let ret = unsafe {
-        libc::ioctl(master.fd, libc::TIOCSWINSZ, &winsize as *const Winsize)
-    };
+    let ret = unsafe { libc::ioctl(master.fd, libc::TIOCSWINSZ, &winsize as *const Winsize) };
     if ret < 0 {
         Err(PtyError::IoFailed(std::io::Error::last_os_error()))
     } else {
@@ -352,18 +362,12 @@ pub fn read_from_pty(master: &PtyMaster, buf: &mut [u8]) -> Result<usize, PtyErr
     // - master.fd is a valid open fd (guaranteed by PtyMaster ownership).
     // - buf is a valid mutable slice; as_mut_ptr() + len() are consistent.
     // - We check the return value before treating the buffer as initialized.
-    let n = unsafe {
-        libc::read(
-            master.fd,
-            buf.as_mut_ptr() as *mut libc::c_void,
-            buf.len(),
-        )
-    };
+    let n = unsafe { libc::read(master.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
 
     match n {
-        n if n > 0  => Ok(n as usize),
-        0           => Ok(0), // EOF — shell exited, call waitpid
-        _           => Err(PtyError::IoFailed(std::io::Error::last_os_error())),
+        n if n > 0 => Ok(n as usize),
+        0 => Ok(0), // EOF — shell exited, call waitpid
+        _ => Err(PtyError::IoFailed(std::io::Error::last_os_error())),
     }
 }
 
@@ -428,8 +432,7 @@ pub fn write_to_pty(master: &PtyMaster, data: &[u8]) -> Result<(), PtyError> {
 /// SIGCHLD handler or a polling loop). Returns `Ok(None)` if the child
 /// hasn't exited yet.
 pub fn reap_child(master: &PtyMaster) -> Result<nix::sys::wait::WaitStatus, PtyError> {
-    waitpid(master.child_pid, None)
-        .map_err(PtyError::ForkFailed) // reuse ForkFailed or add a new variant
+    waitpid(master.child_pid, None).map_err(PtyError::ForkFailed) // reuse ForkFailed or add a new variant
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -442,7 +445,7 @@ mod tests {
     /// This test requires a Unix environment with /bin/sh.
     #[test]
     fn test_spawn_and_echo() {
-        let size = TermSize { rows: 24, cols: 80 };
+        let size = TermSize { rows: 24, cols: 80, shell: None };
         let master = spawn_shell(size).expect("spawn_shell failed");
 
         // Send a command followed by carriage return (Enter in PTY land)
@@ -456,11 +459,17 @@ mod tests {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     output.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    if output.contains("hello_pty") { break; }
+                    if output.contains("hello_pty") {
+                        break;
+                    }
                 }
             }
         }
-        assert!(output.contains("hello_pty"), "expected echo output, got: {:?}", output);
+        assert!(
+            output.contains("hello_pty"),
+            "expected echo output, got: {:?}",
+            output
+        );
 
         // Send exit and reap
         let _ = write_to_pty(&master, b"exit\r");
@@ -469,8 +478,16 @@ mod tests {
 
     #[test]
     fn test_resize() {
-        let master = spawn_shell(TermSize { rows: 24, cols: 80 }).unwrap();
-        resize_pty(&master, TermSize { rows: 50, cols: 200 }).expect("resize failed");
+        let master = spawn_shell(TermSize { rows: 24, cols: 80, shell: None }).unwrap();
+        resize_pty(
+            &master,
+            TermSize {
+                rows: 50,
+                cols: 200,
+                shell: None,
+            },
+        )
+        .expect("resize failed");
         let _ = write_to_pty(&master, b"exit\r");
         let _ = reap_child(&master);
     }

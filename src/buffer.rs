@@ -24,8 +24,15 @@ impl<T> RingBuffer<T> {
     /// Create a new ring buffer with the given fixed capacity.
     pub fn new(capacity: usize) -> Self {
         let mut buf = Vec::with_capacity(capacity);
-        for _ in 0..capacity { buf.push(None); }
-        RingBuffer { buf, head: 0, len: 0, capacity }
+        for _ in 0..capacity {
+            buf.push(None);
+        }
+        RingBuffer {
+            buf,
+            head: 0,
+            len: 0,
+            capacity,
+        }
     }
 
     /// Push a new item. If the buffer is full, the oldest item is overwritten.
@@ -33,19 +40,27 @@ impl<T> RingBuffer<T> {
     pub fn push(&mut self, item: T) {
         self.buf[self.head] = Some(item);
         self.head = (self.head + 1) % self.capacity;
-        if self.len < self.capacity { self.len += 1; }
+        if self.len < self.capacity {
+            self.len += 1;
+        }
     }
 
     /// Number of items currently stored.
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
     /// Whether the buffer holds zero items.
-    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     /// Get the i-th oldest item (0 = oldest, len-1 = newest).
     /// Returns None if the index is out of range.
     pub fn get(&self, i: usize) -> Option<&T> {
-        if i >= self.len { return None; }
+        if i >= self.len {
+            return None;
+        }
         // Oldest item lives at (head - len) mod capacity.
         let start = (self.head + self.capacity - self.len) % self.capacity;
         let idx = (start + i) % self.capacity;

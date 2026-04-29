@@ -33,11 +33,11 @@
 //! columns. This implementation treats every `char` as one column wide.
 //! If you need wide-char support, replace `char` with a `Grapheme` type
 //! and add a `Cell::wide` flag. See the `unicode-width` crate.
- 
+
 use std::fmt;
- 
+
 // ─── Color ───────────────────────────────────────────────────────────────────
- 
+
 /// ANSI/VT terminal color.
 ///
 /// ## The three systems
@@ -77,9 +77,9 @@ pub enum Color {
     /// 24-bit RGB true color.
     Rgb(u8, u8, u8),
 }
- 
+
 // ─── Attributes ──────────────────────────────────────────────────────────────
- 
+
 /// Visual style applied to a single cell.
 ///
 /// Each field corresponds to an SGR (Select Graphic Rendition) escape code:
@@ -99,34 +99,34 @@ pub enum Color {
 /// Premature micro-optimization would hurt readability here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Attributes {
-    pub bold:      bool,
-    pub italic:    bool,
+    pub bold: bool,
+    pub italic: bool,
     pub underline: bool,
-    pub blink:     bool,
+    pub blink: bool,
     /// If true, the renderer should swap fg and bg when drawing.
     /// Used for selection highlights and cursor display.
-    pub reverse:   bool,
-    pub fg:        Color,
-    pub bg:        Color,
+    pub reverse: bool,
+    pub fg: Color,
+    pub bg: Color,
 }
- 
+
 impl Default for Attributes {
     /// Plain text, no decoration, terminal default colors.
     fn default() -> Self {
         Attributes {
-            bold:      false,
-            italic:    false,
+            bold: false,
+            italic: false,
             underline: false,
-            blink:     false,
-            reverse:   false,
-            fg:        Color::Default,
-            bg:        Color::Default,
+            blink: false,
+            reverse: false,
+            fg: Color::Default,
+            bg: Color::Default,
         }
     }
 }
- 
+
 // ─── Cell ────────────────────────────────────────────────────────────────────
- 
+
 /// One character position on the terminal screen.
 ///
 /// ## Why `Copy`?
@@ -143,7 +143,7 @@ pub struct Cell {
     /// The Unicode scalar value displayed in this cell.
     /// `char` in Rust is always a valid Unicode scalar — no surrogates,
     /// no invalid sequences. Space (`' '`) is the "empty" cell.
-    pub ch:    char,
+    pub ch: char,
     /// Visual style (color, bold, etc.)
     pub attrs: Attributes,
     /// True if this cell changed since the last render pass.
@@ -151,16 +151,20 @@ pub struct Cell {
     /// is the single biggest rendering performance win available.
     pub dirty: bool,
 }
- 
+
 impl Default for Cell {
     /// A plain space with default styling. Represents an empty terminal cell.
     fn default() -> Self {
-        Cell { ch: ' ', attrs: Attributes::default(), dirty: false }
+        Cell {
+            ch: ' ',
+            attrs: Attributes::default(),
+            dirty: false,
+        }
     }
 }
- 
+
 // ─── EraseMode ───────────────────────────────────────────────────────────────
- 
+
 /// Which portion of the screen (or line) to erase.
 /// Matches the ECMA-48 / VT100 ED (Erase Display) and EL (Erase Line) params.
 ///
@@ -178,9 +182,9 @@ pub enum EraseMode {
     /// Entire screen or line. ED 2 / EL 2.
     All,
 }
- 
+
 // ─── Grid ────────────────────────────────────────────────────────────────────
- 
+
 /// The full terminal screen — a 2-D grid of [`Cell`]s.
 ///
 /// ## Coordinate system
@@ -195,17 +199,17 @@ pub struct Grid {
     pub cols: usize,
     /// Flat storage. Index with `row * cols + col`.
     cells: Vec<Cell>,
- 
+
     /// Row of the text cursor (0-based). Next `write_char` writes here.
     pub cursor_row: usize,
     /// Column of the text cursor (0-based).
     pub cursor_col: usize,
- 
+
     /// SGR attributes applied to newly written characters.
     /// The VT parser updates this whenever it sees `\x1b[...m` sequences.
     pub current_attrs: Attributes,
 }
- 
+
 impl Grid {
     /// Allocate a new grid filled with blank (space) cells.
     /// Cursor starts at (0, 0). All cells start clean (dirty = false).
@@ -225,9 +229,9 @@ impl Grid {
             current_attrs: Attributes::default(),
         }
     }
- 
+
     // ── Cell access ──────────────────────────────────────────────────────
- 
+
     /// Immutable reference to the cell at `(row, col)`.
     /// Returns `None` if the coordinates are out of bounds — never panics.
     #[inline]
@@ -238,7 +242,7 @@ impl Grid {
             None
         }
     }
- 
+
     /// Mutable reference to the cell at `(row, col)`.
     /// Returns `None` if out of bounds.
     #[inline]
@@ -249,9 +253,9 @@ impl Grid {
             None
         }
     }
- 
+
     // ── Writing ──────────────────────────────────────────────────────────
- 
+
     /// Write `ch` at the current cursor position with `current_attrs`,
     /// then advance the cursor one column to the right.
     ///
@@ -281,13 +285,13 @@ impl Grid {
         // the borrow checker would reject it: `&mut self` for get_mut and
         // `&self` for current_attrs can't coexist.
         let attrs = self.current_attrs;
- 
+
         if let Some(cell) = self.get_mut(row, col) {
-            cell.ch    = ch;
+            cell.ch = ch;
             cell.attrs = attrs;
             cell.dirty = true;
         }
- 
+
         // Advance: column first, wrap to next row at the right edge.
         self.cursor_col += 1;
         if self.cursor_col >= self.cols {
@@ -300,9 +304,9 @@ impl Grid {
             }
         }
     }
- 
+
     // ── Scrolling ─────────────────────────────────────────────────────────
- 
+
     /// Scroll the grid up by `n` rows.
     ///
     /// - Rows `[n, rows)` move to `[0, rows-n)`.
@@ -322,27 +326,31 @@ impl Grid {
     /// Panics if `n >= self.rows`. Scrolling by the full height would leave
     /// nothing to copy and is almost certainly a caller bug.
     pub fn scroll_up(&mut self, n: usize) {
-        assert!(n < self.rows, "scroll_up: n ({n}) must be < rows ({})", self.rows);
- 
+        assert!(
+            n < self.rows,
+            "scroll_up: n ({n}) must be < rows ({})",
+            self.rows
+        );
+
         // Shift rows [n..] to [0..rows-n] in one memmove.
-        self.cells.copy_within(n * self.cols .., 0);
- 
+        self.cells.copy_within(n * self.cols.., 0);
+
         // Clear the now-vacated bottom n rows.
         let clear_start = (self.rows - n) * self.cols;
         for cell in self.cells[clear_start..].iter_mut() {
             *cell = Cell::default();
             cell.dirty = true;
         }
- 
+
         // Mark all moved rows dirty so the renderer repaints them.
         // (Their content changed position, even if the characters didn't change.)
         for cell in self.cells[..clear_start].iter_mut() {
             cell.dirty = true;
         }
     }
- 
+
     // ── Erasing ───────────────────────────────────────────────────────────
- 
+
     /// Erase part of the current line.
     ///
     /// Erased cells become spaces and adopt the *current background color*
@@ -352,31 +360,34 @@ impl Grid {
     ///
     /// Cursor does NOT move (matches VT100 EL behaviour).
     pub fn erase_line(&mut self, mode: EraseMode) {
-        let row  = self.cursor_row;
-        let col  = self.cursor_col;
-        let bg   = self.current_attrs.bg;
- 
+        let row = self.cursor_row;
+        let col = self.cursor_col;
+        let bg = self.current_attrs.bg;
+
         // Build a blank cell with the current background color.
         // All other attributes reset — only bg carries through on erase.
         let blank = Cell {
-            ch:    ' ',
-            attrs: Attributes { bg, ..Attributes::default() },
+            ch: ' ',
+            attrs: Attributes {
+                bg,
+                ..Attributes::default()
+            },
             dirty: true,
         };
- 
+
         let range = match mode {
-            EraseMode::ToEnd   => col..self.cols,
+            EraseMode::ToEnd => col..self.cols,
             EraseMode::ToStart => 0..col + 1,
-            EraseMode::All     => 0..self.cols,
+            EraseMode::All => 0..self.cols,
         };
- 
+
         for c in range {
             if let Some(cell) = self.get_mut(row, c) {
                 *cell = blank;
             }
         }
     }
- 
+
     /// Erase part of the display (screen).
     ///
     /// Same background-color semantics as [`erase_line`].
@@ -386,26 +397,29 @@ impl Grid {
     pub fn erase_display(&mut self, mode: EraseMode) {
         let row = self.cursor_row;
         let col = self.cursor_col;
-        let bg  = self.current_attrs.bg;
- 
+        let bg = self.current_attrs.bg;
+
         let blank = Cell {
-            ch:    ' ',
-            attrs: Attributes { bg, ..Attributes::default() },
+            ch: ' ',
+            attrs: Attributes {
+                bg,
+                ..Attributes::default()
+            },
             dirty: true,
         };
- 
+
         // Compute the flat-index range to blank.
         let (start, end) = match mode {
-            EraseMode::ToEnd   => (row * self.cols + col, self.rows * self.cols),
+            EraseMode::ToEnd => (row * self.cols + col, self.rows * self.cols),
             EraseMode::ToStart => (0, row * self.cols + col + 1),
-            EraseMode::All     => (0, self.rows * self.cols),
+            EraseMode::All => (0, self.rows * self.cols),
         };
- 
+
         for cell in self.cells[start..end].iter_mut() {
             *cell = blank;
         }
     }
- 
+
     /// Convenience: erase the entire screen and home the cursor to (0, 0).
     /// This is the common "clear screen" operation — most callers want this
     /// rather than `erase_display(EraseMode::All)` which doesn't move cursor.
@@ -414,9 +428,9 @@ impl Grid {
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
- 
+
     // ── Cursor movement ───────────────────────────────────────────────────
- 
+
     /// Move the cursor to an absolute position.
     ///
     /// Coordinates are clamped to `[0, rows-1]` × `[0, cols-1]`.
@@ -426,20 +440,20 @@ impl Grid {
         self.cursor_row = row.min(self.rows - 1);
         self.cursor_col = col.min(self.cols - 1);
     }
- 
+
     /// Move cursor by a relative delta. Positive = right/down, negative = left/up.
     /// Clamps to grid bounds — does not wrap.
     pub fn move_cursor_relative(&mut self, delta_row: isize, delta_col: isize) {
-        let new_row = (self.cursor_row as isize + delta_row)
-            .clamp(0, self.rows as isize - 1) as usize;
-        let new_col = (self.cursor_col as isize + delta_col)
-            .clamp(0, self.cols as isize - 1) as usize;
+        let new_row =
+            (self.cursor_row as isize + delta_row).clamp(0, self.rows as isize - 1) as usize;
+        let new_col =
+            (self.cursor_col as isize + delta_col).clamp(0, self.cols as isize - 1) as usize;
         self.cursor_row = new_row;
         self.cursor_col = new_col;
     }
- 
+
     // ── Dirty tracking ────────────────────────────────────────────────────
- 
+
     /// Iterator over every cell that changed since the last `clear_dirty()`.
     /// Yields `(row, col, &Cell)` tuples.
     ///
@@ -464,7 +478,7 @@ impl Grid {
             }
         })
     }
- 
+
     /// Mark all cells as clean. Call this once per frame, after rendering.
     /// See [`dirty_cells`] for the full usage pattern.
     pub fn clear_dirty(&mut self) {
@@ -472,9 +486,9 @@ impl Grid {
             cell.dirty = false;
         }
     }
- 
+
     // ── Resize ────────────────────────────────────────────────────────────
- 
+
     /// Resize the grid to `new_rows × new_cols`.
     ///
     /// Content that fits in both dimensions is preserved in place.
@@ -490,13 +504,13 @@ impl Grid {
     pub fn resize(&mut self, new_rows: usize, new_cols: usize) {
         assert!(new_rows > 0, "resize: rows must be > 0");
         assert!(new_cols > 0, "resize: cols must be > 0");
- 
+
         let mut new_cells = vec![Cell::default(); new_rows * new_cols];
- 
+
         // Copy the overlap region from old grid to new grid.
         let copy_rows = self.rows.min(new_rows);
         let copy_cols = self.cols.min(new_cols);
- 
+
         for r in 0..copy_rows {
             for c in 0..copy_cols {
                 new_cells[r * new_cols + c] = self.cells[r * self.cols + c];
@@ -505,19 +519,19 @@ impl Grid {
                 new_cells[r * new_cols + c].dirty = true;
             }
         }
- 
-        self.rows  = new_rows;
-        self.cols  = new_cols;
+
+        self.rows = new_rows;
+        self.cols = new_cols;
         self.cells = new_cells;
- 
+
         // Clamp cursor — it may now be out of bounds.
         self.cursor_row = self.cursor_row.min(new_rows - 1);
         self.cursor_col = self.cursor_col.min(new_cols - 1);
     }
 }
- 
+
 // ─── Display ─────────────────────────────────────────────────────────────────
- 
+
 impl fmt::Display for Grid {
     /// Plain-text rendering for debugging. Strips all color/attribute info.
     /// Useful with `println!("{}", grid)` or `dbg!` in tests.
@@ -531,15 +545,15 @@ impl fmt::Display for Grid {
         Ok(())
     }
 }
- 
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
- 
+
 #[cfg(test)]
 mod tests {
     use super::*;
- 
+
     // ── Construction ──────────────────────────────────────────────────────
- 
+
     #[test]
     fn new_grid_is_blank() {
         let g = Grid::new(4, 8);
@@ -551,17 +565,21 @@ mod tests {
             }
         }
     }
- 
+
     #[test]
     #[should_panic(expected = "rows must be > 0")]
-    fn new_zero_rows_panics() { Grid::new(0, 10); }
- 
+    fn new_zero_rows_panics() {
+        Grid::new(0, 10);
+    }
+
     #[test]
     #[should_panic(expected = "cols must be > 0")]
-    fn new_zero_cols_panics() { Grid::new(10, 0); }
- 
+    fn new_zero_cols_panics() {
+        Grid::new(10, 0);
+    }
+
     // ── Writing & dirty tracking ──────────────────────────────────────────
- 
+
     #[test]
     fn write_char_sets_cell_and_advances_cursor() {
         let mut g = Grid::new(4, 8);
@@ -571,28 +589,32 @@ mod tests {
         assert_eq!(g.cursor_col, 1);
         assert_eq!(g.cursor_row, 0);
     }
- 
+
     #[test]
     fn write_char_wraps_at_end_of_line() {
         let mut g = Grid::new(4, 4); // 4 cols
-        for _ in 0..4 { g.write_char('x'); }
+        for _ in 0..4 {
+            g.write_char('x');
+        }
         // After 4 writes cursor should wrap to (1, 0)
         assert_eq!(g.cursor_row, 1);
         assert_eq!(g.cursor_col, 0);
     }
- 
+
     #[test]
     fn write_char_scrolls_when_past_last_row() {
         let mut g = Grid::new(2, 2); // 2 rows, 2 cols
-        // Fill all 4 cells: (0,0), (0,1), (1,0), (1,1)
-        for ch in ['a', 'b', 'c', 'd'] { g.write_char(ch); }
+                                     // Fill all 4 cells: (0,0), (0,1), (1,0), (1,1)
+        for ch in ['a', 'b', 'c', 'd'] {
+            g.write_char(ch);
+        }
         // The 5th char should trigger a scroll; cursor should be (1, 1)
         g.write_char('e');
         assert_eq!(g.cursor_row, 1);
         // Row 0 should now have what was in row 1: 'c', 'd'
         assert_eq!(g.get(0, 0).unwrap().ch, 'c');
     }
- 
+
     #[test]
     fn clear_dirty_resets_all_flags() {
         let mut g = Grid::new(4, 8);
@@ -601,9 +623,9 @@ mod tests {
         g.clear_dirty();
         assert_eq!(g.dirty_cells().count(), 0);
     }
- 
+
     // ── Scrolling ─────────────────────────────────────────────────────────
- 
+
     #[test]
     fn scroll_up_moves_rows() {
         let mut g = Grid::new(3, 3);
@@ -616,20 +638,22 @@ mod tests {
         // Bottom row should be blank
         assert_eq!(g.get(2, 0).unwrap().ch, ' ');
     }
- 
+
     #[test]
     #[should_panic(expected = "must be < rows")]
     fn scroll_up_full_height_panics() {
         let mut g = Grid::new(3, 3);
         g.scroll_up(3);
     }
- 
+
     // ── Erasing ───────────────────────────────────────────────────────────
- 
+
     #[test]
     fn erase_line_to_end() {
         let mut g = Grid::new(3, 5);
-        for ch in ['a', 'b', 'c', 'd', 'e'] { g.write_char(ch); }
+        for ch in ['a', 'b', 'c', 'd', 'e'] {
+            g.write_char(ch);
+        }
         g.move_cursor(0, 2); // cursor at col 2
         g.erase_line(EraseMode::ToEnd);
         // Cols 0,1 untouched
@@ -640,7 +664,7 @@ mod tests {
             assert_eq!(g.get(0, c).unwrap().ch, ' ', "col {c} should be blank");
         }
     }
- 
+
     #[test]
     fn erase_line_preserves_current_bg() {
         let mut g = Grid::new(3, 5);
@@ -650,7 +674,7 @@ mod tests {
             assert_eq!(g.get(0, c).unwrap().attrs.bg, Color::Red);
         }
     }
- 
+
     #[test]
     fn clear_homes_cursor() {
         let mut g = Grid::new(3, 5);
@@ -659,9 +683,9 @@ mod tests {
         assert_eq!(g.cursor_row, 0);
         assert_eq!(g.cursor_col, 0);
     }
- 
+
     // ── Cursor movement ───────────────────────────────────────────────────
- 
+
     #[test]
     fn move_cursor_clamps_to_bounds() {
         let mut g = Grid::new(4, 8);
@@ -669,7 +693,7 @@ mod tests {
         assert_eq!(g.cursor_row, 3); // clamped to rows-1
         assert_eq!(g.cursor_col, 7); // clamped to cols-1
     }
- 
+
     #[test]
     fn move_cursor_relative_clamps() {
         let mut g = Grid::new(4, 8);
@@ -677,17 +701,21 @@ mod tests {
         assert_eq!(g.cursor_row, 0);
         assert_eq!(g.cursor_col, 0);
     }
- 
+
     // ── Resize ────────────────────────────────────────────────────────────
- 
+
     #[test]
     fn resize_preserves_content_in_overlap() {
         let mut g = Grid::new(4, 8);
         g.write_char('Q');
         g.resize(10, 20); // grow
-        assert_eq!(g.get(0, 0).unwrap().ch, 'Q', "content should survive resize");
+        assert_eq!(
+            g.get(0, 0).unwrap().ch,
+            'Q',
+            "content should survive resize"
+        );
     }
- 
+
     #[test]
     fn resize_clamps_cursor() {
         let mut g = Grid::new(10, 10);
@@ -696,9 +724,9 @@ mod tests {
         assert_eq!(g.cursor_row, 3);
         assert_eq!(g.cursor_col, 3);
     }
- 
+
     // ── Bounds ────────────────────────────────────────────────────────────
- 
+
     #[test]
     fn get_out_of_bounds_returns_none() {
         let g = Grid::new(4, 8);
