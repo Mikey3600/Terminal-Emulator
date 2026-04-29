@@ -2,16 +2,7 @@
 //!
 //! This module wires together the four major subsystems of the application:
 //! (1) PTY process management, (2) input capture, (3) ANSI parsing, and
-//! (4) incremental rendering. The `run` loop continuously transfers bytes
-//! from the shell PTY into the parser, mutates the in-memory screen grid,
-//! and paints only changed cells to stdout.
-//!
-//! Data flow summary:
-//! 1. Spawn shell attached to a PTY master.
-//! 2. Read shell output bytes from PTY.
-//! 3. Parse bytes into terminal operations over `Grid`.
-//! 4. Render dirty cells.
-//! 5. Capture keyboard/resize input and write encoded bytes back to PTY.
+//! (4) incremental rendering.
 
 mod ansi;
 mod buffer;
@@ -21,7 +12,7 @@ mod pty;
 mod terminal;
 mod utils;
 
-use ansi::Parser;
+use ansi::{AnsiCapabilities, Parser};
 use config::Config;
 use crossterm::{
     cursor::MoveTo,
@@ -29,17 +20,23 @@ use crossterm::{
     ExecutableCommand,
 };
 use pty::{reap_child, resize_pty, spawn_shell, write_to_pty, TermSize};
-use std::io::{stdout, Write};
+use std::io::{stdout, IsTerminal, Write};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use terminal::{render, Grid};
+use tokio::sync::mpsc;
+use utils::error::AppResult;
+
+#[derive(Debug)]
+enum TerminalEvent {
+    PtyOutput(Vec<u8>),
+    KeyInput(Vec<u8>),
+    Resize { cols: u16, rows: u16 },
+    Tick,
+}
 
 struct TerminalModeGuard;
-
 impl Drop for TerminalModeGuard {
-    /// Restores the host terminal mode on scope exit (normal return or panic).
-    ///
-    /// This RAII guard avoids leaving the user terminal in raw mode, which
-    /// would otherwise break line editing and echo in the parent shell.
     fn drop(&mut self) {
         input::restore_terminal();
     }
@@ -48,77 +45,121 @@ impl Drop for TerminalModeGuard {
 #[tokio::main]
 async fn main() {
     env_logger::init();
-
     if let Err(err) = run().await {
         eprintln!("terminal-emulator error: {err}");
     }
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1) Load runtime configuration and start shell inside a PTY.
+async fn spawn_pty_reader(
+    master: Arc<pty::pty_master::PtyMaster>,
+    tx: mpsc::UnboundedSender<TerminalEvent>,
+) {
+    let _ = tokio::task::spawn_blocking(move || {
+        let mut buf = vec![0_u8; 4096];
+        loop {
+            match pty::read_from_pty(&master, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx
+                        .send(TerminalEvent::PtyOutput(buf[..n].to_vec()))
+                        .is_err()
+                    {
+                        break;
+                    }
+                    log::trace!("pty_read_bytes={n}");
+                }
+                Err(err) => {
+                    log::debug!("pty_read_error={err}");
+                    break;
+                }
+            }
+        }
+    })
+    .await;
+}
+
+async fn run() -> AppResult<()> {
     let cfg = Config::load();
+
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err("non-interactive environment detected; skipping runtime loop".into());
+    }
+
     let master = Arc::new(spawn_shell(TermSize {
         rows: cfg.rows,
         cols: cfg.cols,
         shell: Some(cfg.shell.clone()),
     })?);
-
-    // 2) Initialize in-memory screen model and parser state machine.
     let mut grid = Grid::new(cfg.rows as usize, cfg.cols as usize);
-    let mut parser = Parser::new();
-    let mut input_rx = input::spawn_input_task();
+    let mut parser = Parser::new(AnsiCapabilities::default());
+    let mut input_rx = input::spawn_input_task()?;
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     let _terminal_mode_guard = TerminalModeGuard;
 
-    // 3) Put terminal in raw mode and clear the visible screen once.
+    tokio::spawn(spawn_pty_reader(Arc::clone(&master), event_tx.clone()));
+
+    tokio::spawn({
+        let event_tx = event_tx.clone();
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(16)).await;
+                if event_tx.send(TerminalEvent::Tick).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Some(event) = input_rx.recv().await {
+            match event {
+                input::InputEvent::Bytes(bytes) => {
+                    let _ = event_tx.send(TerminalEvent::KeyInput(bytes));
+                }
+                input::InputEvent::Resize(cols, rows) => {
+                    let _ = event_tx.send(TerminalEvent::Resize { cols, rows });
+                }
+            }
+        }
+    });
+
     let mut out = stdout();
     out.execute(Clear(ClearType::All))?;
     out.execute(MoveTo(0, 0))?;
 
-    loop {
-        // 4) Drive PTY output and user input concurrently.
-        tokio::select! {
-            result = tokio::task::spawn_blocking({
-                let master = Arc::clone(&master);
-                move || {
-                    let mut buf = [0u8; 4096];
-                    pty::read_from_pty(&master, &mut buf).map(|n| (buf, n))
-                }
-            }) => {
-                match result {
-                    Ok(Ok((buf, n))) if n > 0 => {
-                        // 4a) Parse shell bytes and repaint only dirty cells.
-                        parser.feed(&buf[..n], &mut grid);
-                        render(&grid, &mut out);
-                        grid.clear_dirty();
-                    }
-                    _ => break,
+    while let Some(event) = event_rx.recv().await {
+        match event {
+            TerminalEvent::PtyOutput(bytes) => {
+                parser.feed(&bytes, &mut grid);
+                let started = Instant::now();
+                render(&grid, &mut out)?;
+                log::trace!("render_us={}", started.elapsed().as_micros());
+                grid.clear_dirty();
+            }
+            TerminalEvent::KeyInput(bytes) => {
+                write_to_pty(&master, &bytes)?;
+            }
+            TerminalEvent::Resize { cols, rows } => {
+                if rows > 0 && cols > 0 {
+                    grid.resize(rows as usize, cols as usize);
+                    resize_pty(
+                        &master,
+                        TermSize {
+                            rows,
+                            cols,
+                            shell: None,
+                        },
+                    )?;
                 }
             }
-            Some(event) = input_rx.recv() => {
-                match event {
-                    input::InputEvent::Bytes(bytes) => {
-                        // 4b) Forward encoded key bytes to the shell process.
-                        let _ = write_to_pty(&master, &bytes);
-                    }
-                    input::InputEvent::Resize(cols, rows) => {
-                        if rows > 0 && cols > 0 {
-                            // 4c) Keep UI model and kernel PTY size in sync.
-                            grid.resize(rows as usize, cols as usize);
-                            let _ = resize_pty(&master, TermSize { rows, cols, shell: None });
-                        }
-                    }
-                }
-            }
+            TerminalEvent::Tick => {}
         }
     }
 
-    // 5) Best-effort child reap and cursor reposition for clean shell return.
     let _ = reap_child(&master);
-
     if let Ok((_cols, rows)) = terminal_size() {
         let _ = out.execute(MoveTo(0, rows.saturating_sub(1)));
         let _ = out.flush();
     }
-
     Ok(())
 }

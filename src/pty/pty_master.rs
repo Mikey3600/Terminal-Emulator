@@ -216,7 +216,12 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
         .shell
         .or_else(|| std::env::var("SHELL").ok())
         .unwrap_or_else(|| "/bin/sh".to_string());
-    let shell_cstr = CString::new(shell_path.clone()).expect("shell path contained null byte");
+    let shell_cstr = CString::new(shell_path.clone()).map_err(|_| {
+        PtyError::IoFailed(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "shell path contained null byte",
+        ))
+    })?;
 
     // SAFETY: fork() is inherently unsafe. After fork, the child is a
     // copy of the parent's memory but only one thread — all other threads
@@ -487,7 +492,7 @@ mod tests {
             cols: 80,
             shell: None,
         })
-        .unwrap();
+        .expect("spawn shell in test");
         resize_pty(
             &master,
             TermSize {
