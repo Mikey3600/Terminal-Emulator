@@ -14,6 +14,7 @@ use std::path::PathBuf;
 /// Application configuration. Deserialized from TOML.
 /// Every field has a default so a missing config file is fine.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Config {
     #[serde(default = "default_shell")]
     pub shell: String,

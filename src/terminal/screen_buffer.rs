@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! # grid.rs — The Terminal Screen Grid
 //!
 //! ## Mental model

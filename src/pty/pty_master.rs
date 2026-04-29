@@ -39,6 +39,7 @@ use thiserror::Error;
 ///
 /// We use `thiserror` so each variant auto-implements `std::error::Error`
 /// and gives a human-readable message via `Display`.
+#[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum PtyError {
     /// `openpty()` failed — likely hit the system fd limit (ulimit -n).
@@ -83,6 +84,7 @@ pub struct PtyMaster {
 impl PtyMaster {
     /// The raw file descriptor. Use only if you need to pass it to a
     /// low-level syscall. Do NOT close it manually.
+    #[allow(dead_code)]
     pub fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
@@ -96,6 +98,7 @@ impl PtyMaster {
     /// use nix::sys::wait::{waitpid, WaitStatus, WaitOptions};
     /// let _ = waitpid(master.child_pid(), WaitOptions::empty());
     /// ```
+    #[allow(dead_code)]
     pub fn child_pid(&self) -> Pid {
         self.child_pid
     }
@@ -144,6 +147,7 @@ pub struct TermSize {
 
 impl TermSize {
     /// Typical 80×24 terminal — a safe default for testing.
+    #[allow(dead_code)]
     pub fn default_vt100() -> Self {
         Self { rows: 24, cols: 80, shell: None }
     }
