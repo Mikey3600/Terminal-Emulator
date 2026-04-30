@@ -22,6 +22,16 @@ pub enum ParserState {
     OscEscape,
 }
 
+/// Minimal ANSI/VT escape sequence parser used by the terminal grid.
+///
+/// The parser is byte-oriented and stateful:
+/// - [`ParserState::Ground`]: prints plain text and handles simple control bytes.
+/// - [`ParserState::Escape`]: reads `ESC`-prefixed sequences.
+/// - [`ParserState::Csi`]: collects CSI parameters and dispatches final bytes.
+/// - [`ParserState::Osc`]/[`ParserState::OscEscape`]: consumes OSC until terminated.
+///
+/// Capabilities are feature-gated through [`AnsiCapabilities`], allowing
+/// selected protocol families to be enabled/disabled at runtime.
 pub struct Parser {
     state: ParserState,
     params: Vec<u16>,
@@ -33,6 +43,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    /// Creates a parser configured with the provided ANSI capabilities.
     pub fn new(caps: AnsiCapabilities) -> Self {
         Self {
             state: ParserState::Ground,
@@ -44,6 +55,10 @@ impl Parser {
             saved_cursor: (0, 0),
         }
     }
+    /// Feeds a chunk of bytes into the parser and applies effects to `grid`.
+    ///
+    /// This method may be called repeatedly with partial escape sequences; parser
+    /// state is preserved between calls.
     pub fn feed(&mut self, bytes: &[u8], grid: &mut Grid) {
         log::debug!("parser_feed_bytes={}", bytes.len());
         for &b in bytes {
