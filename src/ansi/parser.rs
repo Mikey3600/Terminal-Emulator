@@ -29,6 +29,7 @@ pub struct Parser {
     seen_digit: bool,
     utf8_buf: Vec<u8>,
     caps: AnsiCapabilities,
+    saved_cursor: (usize, usize),
 }
 
 impl Parser {
@@ -40,6 +41,7 @@ impl Parser {
             seen_digit: false,
             utf8_buf: Vec::with_capacity(4),
             caps,
+            saved_cursor: (0, 0),
         }
     }
     pub fn feed(&mut self, bytes: &[u8], grid: &mut Grid) {
@@ -177,6 +179,8 @@ impl Parser {
             },
             b'm' => self.sgr(grid),
             b'd' => grid.move_cursor(self.p(0, 1).saturating_sub(1) as usize, grid.cursor_col),
+            b's' => self.saved_cursor = (grid.cursor_row, grid.cursor_col),
+            b'u' => grid.move_cursor(self.saved_cursor.0, self.saved_cursor.1),
             _ => {}
         }
     }

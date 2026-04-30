@@ -36,6 +36,7 @@
 //! If you need wide-char support, replace `char` with a `Grapheme` type
 //! and add a `Cell::wide` flag. See the `unicode-width` crate.
 
+use std::collections::VecDeque;
 use std::fmt;
 use unicode_width::UnicodeWidthChar;
 
@@ -186,6 +187,28 @@ pub enum EraseMode {
 
 // ─── Grid ────────────────────────────────────────────────────────────────────
 
+pub struct Scrollback {
+    lines: VecDeque<Vec<Cell>>,
+    max_lines: usize,
+}
+
+impl Scrollback {
+    pub fn new(max_lines: usize) -> Self {
+        Self { lines: VecDeque::with_capacity(max_lines), max_lines }
+    }
+
+    fn push_line(&mut self, line: Vec<Cell>) {
+        self.lines.push_back(line);
+        while self.lines.len() > self.max_lines {
+            self.lines.pop_front();
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
+}
+
 /// The full terminal screen — a 2-D grid of [`Cell`]s.
 ///
 /// ## Coordinate system
@@ -209,6 +232,8 @@ pub struct Grid {
     /// SGR attributes applied to newly written characters.
     /// The VT parser updates this whenever it sees `\x1b[...m` sequences.
     pub current_attrs: Attributes,
+
+    pub scrollback: Scrollback,
 }
 
 impl Grid {
@@ -228,6 +253,7 @@ impl Grid {
             cursor_row: 0,
             cursor_col: 0,
             current_attrs: Attributes::default(),
+            scrollback: Scrollback::new(5000),
         }
     }
 
@@ -346,6 +372,13 @@ impl Grid {
     /// nothing to copy and is almost certainly a caller bug.
     pub fn scroll_up(&mut self, n: usize) {
         assert!(n < self.rows, "scroll_up: n ({n}) must be < rows ({})", self.rows);
+
+        // Store lines leaving the visible region in scrollback.
+        for row in 0..n {
+            let start = row * self.cols;
+            let end = start + self.cols;
+            self.scrollback.push_line(self.cells[start..end].to_vec());
+        }
 
         // Shift rows [n..] to [0..rows-n] in one memmove.
         self.cells.copy_within(n * self.cols.., 0);
@@ -640,6 +673,21 @@ mod tests {
         assert_eq!(g.get(0, 0).unwrap().ch, 'X');
         // Bottom row should be blank
         assert_eq!(g.get(2, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn scroll_up_pushes_rows_into_scrollback() {
+        let mut g = Grid::new(2, 3);
+        g.write_char('a');
+        g.write_char('b');
+        g.write_char('c');
+        g.write_char('d');
+        g.write_char('e');
+        g.write_char('f');
+
+        g.scroll_up(1);
+
+        assert_eq!(g.scrollback.len(), 1);
     }
 
     #[test]

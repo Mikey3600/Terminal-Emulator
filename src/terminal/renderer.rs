@@ -9,14 +9,13 @@ use crossterm::{
 use std::io::Write;
 
 pub fn render(grid: &Grid, out: &mut impl Write) -> std::io::Result<()> {
-    let dirty_cells: Vec<_> = grid.dirty_cells().collect();
-    let dirty = dirty_cells.len();
+    let dirty = grid.dirty_cells().count();
     log::debug!("renderer_dirty_cells={dirty}");
 
     let mut last_pos: Option<(usize, usize)> = None;
     let mut last_attrs: Option<Attributes> = None;
 
-    for (row, col, cell) in dirty_cells {
+    for (row, col, cell) in grid.dirty_cells() {
         if cell.wide_continuation {
             continue;
         }
