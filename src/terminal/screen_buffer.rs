@@ -325,30 +325,36 @@ impl Grid {
     /// # Panics
     /// Panics if `n >= self.rows`. Scrolling by the full height would leave
     /// nothing to copy and is almost certainly a caller bug.
-    pub fn scroll_up(&mut self, n: usize) {
-        assert!(
-            n < self.rows,
-            "scroll_up: n ({n}) must be < rows ({})",
-            self.rows
-        );
+   pub fn scroll_up(&mut self, n: usize) {
+    assert!(
+        n < self.rows,
+        "scroll_up: n ({n}) must be < rows ({})",
+        self.rows
+    );
 
-        // Shift rows [n..] to [0..rows-n] in one memmove.
-        self.cells.copy_within(n * self.cols.., 0);
-
-        // Clear the now-vacated bottom n rows.
-        let clear_start = (self.rows - n) * self.cols;
-        for cell in self.cells[clear_start..].iter_mut() {
-            *cell = Cell::default();
-            cell.dirty = true;
-        }
-
-        // Mark all moved rows dirty so the renderer repaints them.
-        // (Their content changed position, even if the characters didn't change.)
-        for cell in self.cells[..clear_start].iter_mut() {
-            cell.dirty = true;
-        }
+    // Save the rows that will scroll off the top into scrollback.
+    for r in 0..n {
+        let start = r * self.cols;
+        let end = start + self.cols;
+        let row = self.cells[start..end].to_vec();
+        self.scrollback.push_back(row);
     }
 
+    // Shift rows [n..] to [0..rows-n]
+    self.cells.copy_within(n * self.cols.., 0);
+
+    // Clear bottom rows
+    let clear_start = (self.rows - n) * self.cols;
+    for cell in self.cells[clear_start..].iter_mut() {
+        *cell = Cell::default();
+        cell.dirty = true;
+    }
+
+    // Mark moved cells dirty
+    for cell in self.cells[..clear_start].iter_mut() {
+        cell.dirty = true;
+    }
+}
     // ── Erasing ───────────────────────────────────────────────────────────
 
     /// Erase part of the current line.
