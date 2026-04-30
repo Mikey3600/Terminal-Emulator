@@ -207,6 +207,10 @@ impl Scrollback {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// The full terminal screen — a 2-D grid of [`Cell`]s.
@@ -373,11 +377,9 @@ impl Grid {
     pub fn scroll_up(&mut self, n: usize) {
         assert!(n < self.rows, "scroll_up: n ({n}) must be < rows ({})", self.rows);
 
-        // Store lines leaving the visible region in scrollback.
-        for row in 0..n {
-            let start = row * self.cols;
-            let end = start + self.cols;
-            self.scrollback.push_line(self.cells[start..end].to_vec());
+        // Store exactly the n lines leaving the visible region in scrollback.
+        for row in self.cells.chunks_exact(self.cols).take(n) {
+            self.scrollback.push_line(row.to_vec());
         }
 
         // Shift rows [n..] to [0..rows-n] in one memmove.
