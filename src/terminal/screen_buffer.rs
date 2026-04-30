@@ -207,6 +207,10 @@ impl Scrollback {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// The full terminal screen — a 2-D grid of [`Cell`]s.
