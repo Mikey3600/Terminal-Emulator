@@ -414,8 +414,12 @@ impl Grid {
 
         // Build a blank cell with the current background color.
         // All other attributes reset — only bg carries through on erase.
-        let blank =
-            Cell { ch: ' ', attrs: Attributes { bg, ..Attributes::default() }, dirty: true };
+        let blank = Cell {
+            ch: ' ',
+            attrs: Attributes { bg, ..Attributes::default() },
+            dirty: true,
+            wide_continuation: false,
+        };
 
         let range = match mode {
             EraseMode::ToEnd => col..self.cols,
@@ -441,8 +445,12 @@ impl Grid {
         let col = self.cursor_col;
         let bg = self.current_attrs.bg;
 
-        let blank =
-            Cell { ch: ' ', attrs: Attributes { bg, ..Attributes::default() }, dirty: true };
+        let blank = Cell {
+            ch: ' ',
+            attrs: Attributes { bg, ..Attributes::default() },
+            dirty: true,
+            wide_continuation: false,
+        };
 
         // Compute the flat-index range to blank.
         let (start, end) = match mode {
