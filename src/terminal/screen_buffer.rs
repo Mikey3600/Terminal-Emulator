@@ -37,6 +37,7 @@
 //! and add a `Cell::wide` flag. See the `unicode-width` crate.
 
 use std::fmt;
+use unicode_width::UnicodeWidthChar;
 
 // ─── Color ───────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,8 @@ pub struct Cell {
     pub ch: char,
     /// Visual style (color, bold, etc.)
     pub attrs: Attributes,
+    /// True when this cell is the trailing half of a wide character.
+    pub wide_continuation: bool,
     /// True if this cell changed since the last render pass.
     /// The renderer should only repaint dirty cells — skipping clean ones
     /// is the single biggest rendering performance win available.
@@ -157,7 +160,7 @@ pub struct Cell {
 impl Default for Cell {
     /// A plain space with default styling. Represents an empty terminal cell.
     fn default() -> Self {
-        Cell { ch: ' ', attrs: Attributes::default(), dirty: false }
+        Cell { ch: ' ', attrs: Attributes::default(), wide_continuation: false, dirty: false }
     }
 }
 
@@ -276,26 +279,44 @@ impl Grid {
     /// this function. Passing a raw `\n` here will write a replacement
     /// character glyph into the cell, not move the cursor down.
     pub fn write_char(&mut self, ch: char) {
+        let width = UnicodeWidthChar::width(ch).unwrap_or(1);
+        if width == 0 {
+            return;
+        }
+
+        if width == 2 && self.cursor_col + 1 >= self.cols {
+            self.cursor_col = 0;
+            self.cursor_row += 1;
+            if self.cursor_row >= self.rows {
+                self.scroll_up(1);
+                self.cursor_row = self.rows - 1;
+            }
+        }
+
         let row = self.cursor_row;
         let col = self.cursor_col;
-        // Snapshot attrs before the mutable borrow below.
-        // If we wrote `self.get_mut(row, col).attrs = self.current_attrs`
-        // the borrow checker would reject it: `&mut self` for get_mut and
-        // `&self` for current_attrs can't coexist.
         let attrs = self.current_attrs;
 
         if let Some(cell) = self.get_mut(row, col) {
             cell.ch = ch;
             cell.attrs = attrs;
+            cell.wide_continuation = false;
             cell.dirty = true;
         }
 
-        // Advance: column first, wrap to next row at the right edge.
-        self.cursor_col += 1;
+        if width == 2 {
+            if let Some(next) = self.get_mut(row, col + 1) {
+                next.ch = ' ';
+                next.attrs = attrs;
+                next.wide_continuation = true;
+                next.dirty = true;
+            }
+        }
+
+        self.cursor_col += width;
         if self.cursor_col >= self.cols {
             self.cursor_col = 0;
             self.cursor_row += 1;
-            // Scroll if we've gone below the last row.
             if self.cursor_row >= self.rows {
                 self.scroll_up(1);
                 self.cursor_row = self.rows - 1;

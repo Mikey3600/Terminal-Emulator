@@ -27,6 +27,7 @@ enum TerminalEvent {
     KeyInput(Vec<u8>),
     Resize { cols: u16, rows: u16 },
     Tick,
+    PtyEof,
 }
 
 struct TerminalModeGuard;
@@ -52,7 +53,10 @@ async fn spawn_pty_reader(
         let mut buf = vec![0_u8; 4096];
         loop {
             match pty::read_from_pty(&master, &mut buf) {
-                Ok(0) => break,
+                Ok(0) => {
+                    let _ = tx.send(TerminalEvent::PtyEof);
+                    break;
+                }
                 Ok(n) => {
                     if tx.send(TerminalEvent::PtyOutput(buf[..n].to_vec())).is_err() {
                         break;
@@ -138,6 +142,10 @@ async fn run() -> AppResult<()> {
                 }
             }
             TerminalEvent::Tick => {}
+            TerminalEvent::PtyEof => {
+                log::info!("pty eof received; shutting down event loop");
+                break;
+            }
         }
     }
 
