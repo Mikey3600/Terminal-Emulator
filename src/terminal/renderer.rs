@@ -1,4 +1,4 @@
-use crate::terminal::screen_buffer::{Color, Grid};
+use crate::terminal::screen_buffer::{Attributes, Color, Grid};
 use crossterm::{
     cursor::MoveTo,
     style::{
@@ -9,17 +9,41 @@ use crossterm::{
 use std::io::Write;
 
 pub fn render(grid: &Grid, out: &mut impl Write) -> std::io::Result<()> {
+    let dirty = grid.dirty_cells().count();
+    log::debug!("renderer_dirty_cells={dirty}");
+
+    let mut last_pos: Option<(usize, usize)> = None;
+    let mut last_attrs: Option<Attributes> = None;
+
     for (row, col, cell) in grid.dirty_cells() {
-        out.queue(MoveTo(col as u16, row as u16))?;
-        out.queue(SetForegroundColor(to_crossterm_color(cell.attrs.fg)))?;
-        out.queue(SetBackgroundColor(to_crossterm_color(cell.attrs.bg)))?;
-        out.queue(SetAttribute(if cell.attrs.bold {
-            Attribute::Bold
-        } else {
-            Attribute::NormalIntensity
-        }))?;
+        if cell.wide_continuation {
+            continue;
+        }
+
+        let contiguous = last_pos.map(|(r, c)| r == row && c + 1 == col).unwrap_or(false);
+        if !contiguous {
+            out.queue(MoveTo(col as u16, row as u16))?;
+        }
+
+        if last_attrs.map(|a| a.fg) != Some(cell.attrs.fg) {
+            out.queue(SetForegroundColor(to_crossterm_color(cell.attrs.fg)))?;
+        }
+        if last_attrs.map(|a| a.bg) != Some(cell.attrs.bg) {
+            out.queue(SetBackgroundColor(to_crossterm_color(cell.attrs.bg)))?;
+        }
+        if last_attrs.map(|a| a.bold) != Some(cell.attrs.bold) {
+            out.queue(SetAttribute(if cell.attrs.bold {
+                Attribute::Bold
+            } else {
+                Attribute::NormalIntensity
+            }))?;
+        }
+
         write!(out, "{}", cell.ch)?;
+        last_pos = Some((row, col));
+        last_attrs = Some(cell.attrs);
     }
+
     out.queue(MoveTo(grid.cursor_col as u16, grid.cursor_row as u16))?;
     out.flush()
 }

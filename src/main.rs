@@ -4,41 +4,36 @@
 //! (1) PTY process management, (2) input capture, (3) ANSI parsing, and
 //! (4) incremental rendering.
 
-mod ansi;
-mod buffer;
-mod config;
-mod input;
-mod pty;
-mod terminal;
-mod utils;
-
-use ansi::{AnsiCapabilities, Parser};
-use config::Config;
 use crossterm::{
     cursor::MoveTo,
     terminal::{size as terminal_size, Clear, ClearType},
     ExecutableCommand,
 };
-use pty::{reap_child, resize_pty, spawn_shell, write_to_pty, TermSize};
 use std::io::{stdout, IsTerminal, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use terminal::{render, Grid};
+use terminal_emulator::ansi::{AnsiCapabilities, Parser};
+use terminal_emulator::config::Config;
+use terminal_emulator::pty::{self, reap_child, resize_pty, spawn_shell, write_to_pty, TermSize};
+use terminal_emulator::terminal::{render, Grid};
+use terminal_emulator::utils::error::AppResult;
 use tokio::sync::mpsc;
-use utils::error::AppResult;
 
 #[derive(Debug)]
 enum TerminalEvent {
+    // Future: MouseInput/Clipboard/OSC dispatch can be added here without
+    // changing the parser->grid->renderer architecture.
     PtyOutput(Vec<u8>),
     KeyInput(Vec<u8>),
     Resize { cols: u16, rows: u16 },
     Tick,
+    PtyEof,
 }
 
 struct TerminalModeGuard;
 impl Drop for TerminalModeGuard {
     fn drop(&mut self) {
-        input::restore_terminal();
+        terminal_emulator::input::restore_terminal();
     }
 }
 
@@ -58,12 +53,12 @@ async fn spawn_pty_reader(
         let mut buf = vec![0_u8; 4096];
         loop {
             match pty::read_from_pty(&master, &mut buf) {
-                Ok(0) => break,
+                Ok(0) => {
+                    let _ = tx.send(TerminalEvent::PtyEof);
+                    break;
+                }
                 Ok(n) => {
-                    if tx
-                        .send(TerminalEvent::PtyOutput(buf[..n].to_vec()))
-                        .is_err()
-                    {
+                    if tx.send(TerminalEvent::PtyOutput(buf[..n].to_vec())).is_err() {
                         break;
                     }
                     log::trace!("pty_read_bytes={n}");
@@ -85,6 +80,7 @@ async fn run() -> AppResult<()> {
         return Err("non-interactive environment detected; skipping runtime loop".into());
     }
 
+    log::info!("starting terminal runtime rows={} cols={}", cfg.rows, cfg.cols);
     let master = Arc::new(spawn_shell(TermSize {
         rows: cfg.rows,
         cols: cfg.cols,
@@ -92,7 +88,7 @@ async fn run() -> AppResult<()> {
     })?);
     let mut grid = Grid::new(cfg.rows as usize, cfg.cols as usize);
     let mut parser = Parser::new(AnsiCapabilities::default());
-    let mut input_rx = input::spawn_input_task()?;
+    let mut input_rx = terminal_emulator::input::spawn_input_task()?;
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     let _terminal_mode_guard = TerminalModeGuard;
 
@@ -113,10 +109,10 @@ async fn run() -> AppResult<()> {
     tokio::spawn(async move {
         while let Some(event) = input_rx.recv().await {
             match event {
-                input::InputEvent::Bytes(bytes) => {
+                terminal_emulator::input::InputEvent::Bytes(bytes) => {
                     let _ = event_tx.send(TerminalEvent::KeyInput(bytes));
                 }
-                input::InputEvent::Resize(cols, rows) => {
+                terminal_emulator::input::InputEvent::Resize(cols, rows) => {
                     let _ = event_tx.send(TerminalEvent::Resize { cols, rows });
                 }
             }
@@ -142,20 +138,18 @@ async fn run() -> AppResult<()> {
             TerminalEvent::Resize { cols, rows } => {
                 if rows > 0 && cols > 0 {
                     grid.resize(rows as usize, cols as usize);
-                    resize_pty(
-                        &master,
-                        TermSize {
-                            rows,
-                            cols,
-                            shell: None,
-                        },
-                    )?;
+                    resize_pty(&master, TermSize { rows, cols, shell: None })?;
                 }
             }
             TerminalEvent::Tick => {}
+            TerminalEvent::PtyEof => {
+                log::info!("pty eof received; shutting down event loop");
+                break;
+            }
         }
     }
 
+    log::info!("runtime shutting down; reaping child process");
     let _ = reap_child(&master);
     if let Ok((_cols, rows)) = terminal_size() {
         let _ = out.execute(MoveTo(0, rows.saturating_sub(1)));

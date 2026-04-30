@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Fixed-capacity ring buffer used for scrollback-like history.
 //!
 //! The emulator needs bounded memory while still preserving recently scrolled
@@ -23,12 +25,7 @@ impl<T> RingBuffer<T> {
         for _ in 0..capacity {
             buf.push(None);
         }
-        RingBuffer {
-            buf,
-            head: 0,
-            len: 0,
-            capacity,
-        }
+        RingBuffer { buf, head: 0, len: 0, capacity }
     }
 
     /// Push a new item. If the buffer is full, the oldest item is overwritten.

@@ -14,6 +14,7 @@ use std::path::PathBuf;
 /// Application configuration. Deserialized from TOML.
 /// Every field has a default so a missing config file is fine.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Config {
     #[serde(default = "default_shell")]
     pub shell: String,
@@ -91,12 +92,10 @@ impl Config {
     /// $XDG_CONFIG_HOME/terminal_emulator/config.toml,
     /// or ~/.config/terminal_emulator/config.toml as fallback.
     fn config_path() -> PathBuf {
-        let base = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                PathBuf::from(home).join(".config")
-            });
+        let base = std::env::var("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            PathBuf::from(home).join(".config")
+        });
         base.join("terminal_emulator").join("config.toml")
     }
 }

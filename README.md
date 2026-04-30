@@ -1,289 +1,283 @@
 # Terminal Emulator (Rust)
 
-<<<<<<< HEAD
-A terminal emulator core written in Rust that runs a real shell through a PTY, parses ANSI/VT escape sequences, maintains a screen grid, and renders updates efficiently using dirty-cell redraws.
+A modular terminal emulator core written in Rust that runs a real shell over a PTY, parses ANSI/VT control streams, maintains a styled screen grid, and renders updates incrementally.
+
+## Repository Analysis Report (generated on 2026-04-29)
+
+This README includes a detailed technical assessment of the current codebase state, architecture, test surface, and maturity.
 
 ---
 
-## Overview
+## 1) Executive Summary
 
-This project focuses on the core runtime of a terminal emulator:
-
-1. Create and manage a pseudo-terminal (PTY)
-2. Spawn and control an interactive shell process
-3. Read shell output bytes continuously
-4. Parse control/escape sequences into terminal actions
-5. Update in-memory screen state
-6. Render only changed cells to the host terminal
-7. Capture keyboard input in raw mode and forward to shell
-
-It is modular and intended to be easy to extend (parser behavior, renderer strategy, input mapping, and config).
+- **Project type:** systems-level terminal runtime core (not a full GUI terminal app yet).
+- **Primary strength:** clear module boundaries across PTY, parser, screen model, renderer, and input subsystems.
+- **Primary risk:** compatibility and production hardening gaps (advanced VT semantics, Unicode edge cases, portability, and CI/release rigor).
+- **Current maturity:** strong foundation for further development; suitable for learning, prototyping, and staged hardening toward production.
 
 ---
 
-## Current Features
+## 2) Current Architecture
 
-- **PTY-backed shell session**
-  - Uses Unix PTY primitives to spawn a shell in a child process
-  - Parent process owns PTY master and performs runtime I/O
-  - Handles terminal resize via `TIOCSWINSZ`
-  - Reaps child process to avoid zombies
+### Runtime flow
 
-- **ANSI/VT parser**
-  - Stateful parser for control bytes and escape sequences
-  - Supports cursor motion and positioning CSI commands
-  - Supports erase display/line operations
-  - Supports SGR styling including basic colors, 256-color, and RGB forms
-  - Handles OSC string termination by BEL and `ESC \\`
+1. Load config (`Config::load`).
+2. Validate interactive TTY context (`stdin/stdout` must be terminals).
+3. Spawn shell in PTY.
+4. Start asynchronous event loop:
+   - PTY output reader task
+   - keyboard/resize input task
+   - periodic tick task
+5. Feed PTY bytes to ANSI parser.
+6. Apply parser actions to in-memory `Grid`.
+7. Render dirty cells only.
+8. Forward encoded key bytes back to PTY.
+9. Reap child process on shutdown.
 
-- **Screen buffer model**
-  - 2D grid of cells with style attributes
-  - Cursor state and bounds-safe movement
-  - Dirty-cell tracking for incremental rendering
-  - Resize behavior preserving overlapping content
+### Event model
 
-- **Renderer**
-  - Renders only modified cells for efficient redraw
-  - Clears dirty markers after each flush
+`TerminalEvent` variants currently include:
+- `PtyOutput(Vec<u8>)`
+- `KeyInput(Vec<u8>)`
+- `Resize { cols, rows }`
+- `Tick`
 
-- **Input system**
-  - Raw-mode keyboard event capture
-  - Encodes common keys into terminal byte sequences
-  - Sends encoded input through channels to PTY write path
-
-- **Configuration**
-  - TOML-based config loading with defaults
-  - Configurable shell path and terminal dimensions
-
-- **Test coverage (current)**
-  - Parser tests
-  - Screen buffer behavior tests
-  - PTY spawn/echo and resize tests
+This event-driven structure is clean and extensible for future clipboard/mouse/bracketed-paste/OSC actions.
 
 ---
 
-## Tech Stack
+## 3) Module-by-Module Breakdown
 
-- **Language:** Rust (Edition 2021)
-- **Runtime:** Tokio
-- **Terminal I/O:** Crossterm
-- **PTY + process control:** nix + libc
-- **Config:** serde + toml
-- **Errors:** thiserror
-- **Logging:** log + env_logger
-
----
-
-## Project Structure
-
-```text
-src/
-├── main.rs                 # App orchestration and event loop
-├── config.rs               # Config structs + loading/default logic
-├── buffer.rs               # Ring buffer utility
-├── ansi/
-│   ├── mod.rs
-│   └── parser.rs           # ANSI/VT parser state machine
-├── input/
-│   ├── mod.rs
-│   └── keyboard.rs         # Raw keyboard capture + encoding
-├── pty/
-│   ├── mod.rs
-│   ├── pty_master.rs       # PTY master lifecycle + read/write/resize
-│   └── pty_slave.rs        # PTY slave setup details
-├── terminal/
-│   ├── mod.rs
-│   ├── screen_buffer.rs    # Grid/cell model and cursor logic
-│   └── renderer.rs         # Incremental terminal rendering
-└── utils/
-    ├── mod.rs
-    └── error.rs            # Shared error types/aliases
-```
+- `src/main.rs`
+  - Orchestrates lifecycle, Tokio tasks, event muxing, parser/render pipeline.
+- `src/config.rs`
+  - Configuration model and TOML defaults/loader.
+- `src/pty/`
+  - PTY ownership and shell process management (`openpty`/fork-exec lifecycle, reads/writes, resize).
+- `src/ansi/`
+  - Parser state machine for control sequences and terminal actions.
+- `src/terminal/`
+  - Screen cell/grid model, cursor behavior, dirty tracking, and renderer.
+- `src/input/`
+  - Raw terminal input capture and key encoding.
+- `src/buffer.rs`
+  - Utility ring-buffer logic.
+- `src/utils/error.rs`
+  - Shared error type aliases and application error plumbing.
 
 ---
 
-## How It Works (Data Flow)
+## 4) Dependency & Platform Analysis
 
-1. `main.rs` initializes config and runtime.
-2. PTY layer starts shell and exposes master endpoint.
-3. Output bytes from PTY are streamed to ANSI parser.
-4. Parser mutates `Grid` state in screen buffer.
-5. Renderer paints only dirty cells to stdout.
-6. Keyboard events are encoded and written back to PTY.
+### Core dependencies
+
+- `tokio` for async runtime/tasking.
+- `crossterm` for terminal interactions and raw-mode concerns.
+- `nix` + `libc` for Unix PTY/process primitives.
+- `serde` + `toml` for config parsing.
+- `thiserror` for ergonomic error modeling.
+- `log` + `env_logger` for diagnostics.
+
+### Platform reality
+
+- Present implementation is **Unix-first** due to PTY APIs used.
+- Windows backend (`ConPTY`) is not implemented yet.
 
 ---
 
-## Prerequisites
-=======
-A modular terminal emulator core written in Rust, with PTY process management, ANSI/VT parsing, grid state modeling, and incremental rendering.
+## 5) Test Surface Snapshot
 
-## Current maturity snapshot (as of 2026-04-29)
+The repository includes test coverage in key subsystems:
 
-This project is a **strong systems-programming foundation** and a credible portfolio-grade codebase. It is **not yet production-ready** for broad end-user distribution, but it can reach a 2028-ready baseline with targeted hardening in testing, compatibility, security, release engineering, and observability.
+- ANSI parser tests (`src/ansi/parser.rs`)
+- Screen buffer behavior tests (`src/terminal/screen_buffer.rs`)
+- PTY integration-style tests (`src/pty/pty_master.rs`)
 
-## What exists today
+This is a healthy baseline, especially for parser + screen semantics. Further expansion should focus on compatibility fixtures and large replay traces.
 
-- PTY lifecycle management (`openpty`, `fork`, `setsid`, `dup2`, `execvp`) with explicit child reaping.
-- ANSI parser with common control-flow handling and CSI/OSC support.
-- Screen grid model with dirty-cell tracking and efficient redraw behavior.
-- Raw keyboard input pipeline and PTY write path.
-- Config loading via TOML with defaults.
-- Unit/integration-style tests for parser, grid semantics, and PTY behavior.
+---
 
-## 2028 industry-standard readiness assessment
+## 6) Quality Assessment
 
-### Overall verdict
+### Strengths
 
-- **Architecture quality:** Good
-- **Maintainability:** Good
-- **Core correctness confidence:** Moderate
-- **Production operations readiness:** Early
-- **Security/compliance posture:** Early
+- Cohesive module boundaries and readable ownership.
+- Event-driven runtime is easy to extend.
+- Dirty-cell rendering strategy is performance-aware.
+- Good use of Rust ecosystem crates for safety and clarity.
+- Existing tests target core correctness paths.
 
-### Must-have gaps to close before claiming “2028-ready”
+### Gaps / risks
 
-1. **Standards/compliance coverage**
-   - Expand VT/DEC compatibility and add formal conformance fixtures (escape sequence corpus + golden snapshots).
-2. **Unicode correctness**
-   - Proper UTF-8 decoding, grapheme clusters, East Asian width, combining marks, emoji ZWJ handling.
-3. **Cross-platform strategy**
-   - Either implement Windows backend (ConPTY) or explicitly scope platform support and release policy.
-4. **Security hardening**
-   - Add threat model, dependency-vulnerability scanning, SBOM generation, and release artifact signing.
-5. **Observability**
-   - Structured logs, runtime metrics, and reproducible bug-report bundles.
-6. **Release engineering**
-   - CI matrix (OS/toolchain), reproducible builds, semantic versioning policy, changelog discipline.
-7. **Performance and stress validation**
-   - Benchmarks (parser throughput, render latency) and long-run soak tests.
+- README and release process were previously inconsistent (now corrected).
+- Advanced VT/DEC coverage likely incomplete.
+- Unicode handling needs explicit validation strategy (graphemes, full-width, combining chars, emoji ZWJ).
+- No visible CI policy in this repository snapshot.
+- No explicit security policy/SBOM/signing workflow yet.
 
-### Recommended roadmap
+---
 
-#### Phase 1 (0–3 months): baseline hardening
-- Enforce `cargo fmt`, `clippy -D warnings`, and `cargo test` in CI.
-- Add platform matrix (Linux/macOS) and minimum supported Rust version policy.
-- Add README security policy section and contribution/testing standards.
+## 7) Production Readiness Scorecard (practical estimate)
 
-#### Phase 2 (3–6 months): correctness + compatibility
-- Add ANSI/VT conformance suite with fixture playback.
-- Add Unicode-aware rendering pipeline and width calculation tests.
-- Add resize (`SIGWINCH`) and alternate screen behavior parity tests.
+| Dimension | Status | Notes |
+|---|---|---|
+| Architecture | Good | Clear separation and event flow. |
+| Correctness confidence | Moderate | Good baseline tests; more conformance needed. |
+| Performance discipline | Moderate | Incremental render design is strong; benchmarking not formalized. |
+| Cross-platform support | Early | Unix-first implementation today. |
+| Security/compliance | Early | Hardening pipeline not yet visible. |
+| Release engineering | Early | CI/release controls not yet documented in repo files. |
 
-#### Phase 3 (6–12 months): production readiness
-- Add supply-chain controls (cargo-audit, cargo-deny, SBOM).
-- Add performance benchmarks + regressions gates.
-- Add stable release process (tags, signed artifacts, release notes template).
+---
 
-## Repository structure
+## 8) Recommended Improvement Roadmap
 
-- `src/main.rs` — orchestration layer/event loop.
-- `src/pty/` — PTY abstractions and process lifecycle.
-- `src/ansi/` — parser state machine.
-- `src/terminal/` — grid model and renderer.
-- `src/input/` — keyboard and resize event capture.
-- `src/config.rs` — config loading/defaults.
-- `src/buffer.rs` — ring buffer utility.
+### Near-term (0-2 months)
 
-## Build and run
+- Add CI pipeline with:
+  - `cargo fmt -- --check`
+  - `cargo clippy --all-targets --all-features -D warnings`
+  - `cargo test`
+- Document supported platforms explicitly.
+- Add contributor workflow (branching, test expectations, commit conventions).
+
+### Mid-term (2-6 months)
+
+- Build ANSI/VT conformance fixture suite (golden snapshots).
+- Add Unicode width/grapheme test matrix.
+- Add stress/replay tests with long PTY output streams.
+
+### Longer-term (6+ months)
+
+- Windows backend abstraction + ConPTY implementation.
+- Performance benchmarks + regression thresholds.
+- Supply-chain hardening: dependency audit, SBOM, signed releases.
+
+---
+
+## 9) Build, Run, and Validate
 
 ### Prerequisites
->>>>>>> origin/main
 
 - Rust stable toolchain (`rustup`, `cargo`)
 - Unix-like OS with PTY support (Linux/macOS)
+- Interactive terminal session
 
-<<<<<<< HEAD
----
-
-## Build, Run, and Validate
+### Commands
 
 ```bash
 # Build
 cargo build
 
 # Run
-=======
-### Commands
-
-```bash
-cargo build
->>>>>>> origin/main
 cargo run
 
-<<<<<<< HEAD
 # Format check
 cargo fmt -- --check
 
-# Lints
-cargo clippy --all-targets --all-features
+# Lint
+cargo clippy --all-targets --all-features -- -D warnings
 
-# Tests
+# Test
 cargo test
 ```
 
 ---
 
-## Configuration
+## 10) Repository Tree
 
-The project supports TOML configuration (with defaults). Primary fields currently used:
-
-- `shell` — shell binary/path
-- `rows` — terminal row count
-- `cols` — terminal column count
-
-Additional config fields may exist for planned UI/theming expansion.
-
----
-
-## Current Limitations
-
-- Terminal compatibility is partial compared with mature emulators
-- Advanced Unicode/grapheme-width behavior is not fully complete
-- Feature set is core-focused (no full GUI frontend)
-- Some modules/functions are present but not fully wired into all runtime paths yet
-
----
-
-## Future Improvements
-
-- Full UTF-8 + grapheme-cluster aware rendering
-- Wider ANSI/DEC compatibility and conformance test corpus
-- Alternate screen buffer support (`smcup` / `rmcup`)
-- Mouse reporting and richer input protocols
-- Scrollback navigation UX improvements
-- Stronger CI gates (`clippy -D warnings`, coverage, benchmark checks)
-- Dependency/security automation (`cargo-audit`, `cargo-deny`)
-- Optional GUI renderer backend
-- Cross-platform strategy expansion (including Windows backend path)
-
----
-=======
-## Validation commands
-
-```bash
-cargo fmt -- --check
-cargo clippy --all-targets --all-features
-cargo test
+```text
+src/
+├── main.rs
+├── config.rs
+├── buffer.rs
+├── ansi/
+│   ├── mod.rs
+│   └── parser.rs
+├── input/
+│   ├── mod.rs
+│   └── keyboard.rs
+├── pty/
+│   ├── mod.rs
+│   ├── pty_master.rs
+│   └── pty_slave.rs
+├── terminal/
+│   ├── mod.rs
+│   ├── screen_buffer.rs
+│   └── renderer.rs
+└── utils/
+    ├── mod.rs
+    └── error.rs
 ```
 
-## Known limitations
+---
 
-- Incomplete terminal compatibility relative to mature emulators.
-- Limited Unicode/rendering completeness for advanced scripts.
-- No hardened release pipeline yet (signing/SBOM/automated security gates).
+## 11) Conclusion
 
-## README completeness verdict
+The project has a solid systems-core design and is well-positioned for iterative hardening. With stronger compatibility testing, Unicode correctness guarantees, and CI/release/security discipline, this can evolve from a strong prototype into a production-capable terminal engine.
 
-For a portfolio/research project: **sufficient**.
+---
 
-For a production-grade 2028 claim: **not sufficient unless you maintain these sections continuously**:
-- Security policy and vulnerability disclosure channel.
-- Supported platforms/version policy (including deprecation policy).
-- CI quality gates and release process.
-- Compatibility scope (what ANSI/VT behavior is intentionally unsupported).
-- Performance targets and benchmark methodology.
->>>>>>> origin/main
+## 12) Developer Setup (Quick Start)
 
-## License
+1. Clone the repo and install stable Rust (`rustup toolchain install stable`).
+2. Run local quality checks before opening a PR:
+   - `cargo fmt -- --check`
+   - `cargo clippy --all-targets --all-features -- -D warnings`
+   - `cargo test`
+   - `cargo build`
+3. See `CONTRIBUTING.md` for contributor workflow and `SECURITY.md` for vulnerability reporting.
 
-MIT
+Editor defaults are provided via `.editorconfig`, and Rust formatting defaults are pinned in `rustfmt.toml`.
+
+---
+
+## 13) Architecture Diagram
+
+```text
++------------------+      +--------------------+      +-------------------+
+| Input subsystem  | ---> | Event loop (tokio) | ---> | PTY master/slave  |
+| keyboard/resize  |      | TerminalEvent mux  |      | shell process I/O |
++------------------+      +---------+----------+      +---------+---------+
+                                      |                           |
+                                      v                           v
+                            +---------+----------+      +---------+---------+
+                            | ANSI/VT parser     | ---> | Screen Grid model |
+                            | state machine      |      | dirty cell track  |
+                            +---------+----------+      +---------+---------+
+                                      |                           |
+                                      +------------+--------------+
+                                                   v
+                                         +---------+---------+
+                                         | Incremental render |
+                                         | crossterm output   |
+                                         +--------------------+
+```
+
+## 14) Data Flow Notes
+
+- PTY bytes are consumed in frames and fed into parser state transitions.
+- Parser dispatch mutates `Grid` cursor/cell state.
+- Renderer consumes only dirty cells for minimal redraw.
+- Input bytes are encoded and forwarded to the PTY write path.
+
+---
+
+## 15) Extensibility Notes
+
+Current architecture intentionally leaves room for:
+- mouse input events (new `TerminalEvent` variants and parser dispatch wiring)
+- richer OSC sequence handling (clipboard/title/control channels)
+- clipboard integration (event + OSC bridge)
+- backend abstraction for Windows ConPTY support
+
+These are additive enhancements aligned with the existing event-driven subsystem boundaries.
+
+
+## 16) Repository Health Checklist
+
+- Documentation: `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md` are present.
+- Cargo setup: `Cargo.toml` and `Cargo.lock` are present for reproducible Rust builds.
+- Tests & benches: parser fixtures, PTY replay tests, and parser renderer benchmarks are present under `tests/` and `benches/`.
+- Project scope: currently focused on a Unix-like PTY-driven terminal core rather than a full GUI terminal emulator.
+

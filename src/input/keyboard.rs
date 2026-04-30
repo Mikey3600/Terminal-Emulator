@@ -58,10 +58,10 @@ pub fn spawn_input_task() -> AppResult<mpsc::UnboundedReceiver<InputEvent>> {
                         }
                     }
                 }
-                Some(Event::Resize(cols, rows)) => {
-                    if tx.send(InputEvent::Resize(cols, rows)).is_err() {
-                        break;
-                    }
+                Some(Event::Resize(cols, rows))
+                    if tx.send(InputEvent::Resize(cols, rows)).is_err() =>
+                {
+                    break;
                 }
                 _ => {}
             }
