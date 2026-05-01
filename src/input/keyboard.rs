@@ -50,6 +50,7 @@ pub fn spawn_input_task() -> AppResult<mpsc::UnboundedReceiver<InputEvent>> {
             .await
             .ok()
             .flatten();
+
             match maybe_event {
                 Some(Event::Key(key)) => {
                     if let Some(bytes) = encode_key(key) {
@@ -66,11 +67,19 @@ pub fn spawn_input_task() -> AppResult<mpsc::UnboundedReceiver<InputEvent>> {
                 _ => {}
             }
         }
+
+        // FIX: always restore raw mode when the input loop exits, whether the
+        // channel closed normally or the task was dropped, preventing a raw
+        // mode leak that the original code left to the caller.
+        let _ = disable_raw_mode();
     });
 
     Ok(rx)
 }
 
+// restore_terminal is kept as a best-effort fallback for panic paths or any
+// external code that needs to force-restore the terminal outside the task
+// lifecycle (e.g. a panic hook).
 pub fn restore_terminal() {
     let _ = disable_raw_mode();
 }
