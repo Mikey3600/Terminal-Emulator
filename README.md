@@ -104,7 +104,7 @@ Linux and macOS. The PTY APIs used (`openpty`, `fork`, `ioctl TIOCSWINSZ`) are P
 
 ---
 
-<<<<<<< HEAD
+
 ## 11) Conclusion
 
 The project has a solid systems-core design and is well-positioned for iterative hardening. With stronger compatibility testing, Unicode correctness guarantees, and CI/release/security discipline, this can evolve from a strong prototype into a production-capable terminal engine.
@@ -188,4 +188,4 @@ These are additive enhancements aligned with the existing event-driven subsystem
 | `thiserror` | custom error types |
 | `criterion` | benchmarking |
 | `env_logger` | `RUST_LOG`-driven logging |
->>>>>>> c32db89e48ca7d82b37987dc9a39109a73ce3fed
+
