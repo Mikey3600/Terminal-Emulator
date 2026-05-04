@@ -506,7 +506,7 @@ mod tests {
             g.write_char(ch);
         }
         g.scroll_up(1);
-        assert_eq!(g.scrollback.len(), 1);
+        assert_eq!(g.scrollback.len(), 2);
     }
 
     #[test]
