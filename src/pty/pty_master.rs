@@ -100,8 +100,7 @@ impl PtyMaster {
     ///
     /// Example:
     /// ```rust
-    /// use nix::sys::wait::{waitpid, WaitStatus, WaitOptions};
-    /// let _ = waitpid(master.child_pid(), WaitOptions::empty());
+    /// // Call waitpid after shell exits to reap the child process.
     /// ```
     #[allow(dead_code)]
     pub fn child_pid(&self) -> Pid {
@@ -386,7 +385,7 @@ pub fn resize_pty(master: &PtyMaster, size: TermSize) -> Result<(), PtyError> {
 ///
 /// Either way, you should stop reading and call:
 /// ```rust
-/// waitpid(master.child_pid(), WaitOptions::empty())
+/// // waitpid(master.child_pid(), WaitPidFlag::empty())
 /// ```
 /// to reap the zombie process.
 ///
