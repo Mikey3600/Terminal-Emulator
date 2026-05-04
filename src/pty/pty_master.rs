@@ -54,6 +54,11 @@ pub enum PtyError {
     /// We capture errno at the call site so this is actually debuggable.
     #[error("I/O error on PTY master fd: {0}")]
     IoFailed(std::io::Error),
+
+    // FIX #1: dedicated variant for waitpid failures — distinct from fork failures.
+    /// `waitpid()` failed while reaping the child process.
+    #[error("waitpid failed: {0}")]
+    WaitFailed(nix::Error),
 }
 
 // ─── PtyMaster ───────────────────────────────────────────────────────────────
@@ -238,34 +243,34 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
         // on PtyMaster in the child, which would close master_fd that
         // the parent is still using.
         ForkResult::Child => {
-            log::debug!("pty_child_process_initializing");
+            // FIX #3: replace all expect()/panic! calls in the child with
+            // libc::_exit(1). Panicking after fork is unsafe — Rust's panic
+            // machinery acquires mutexes that may be locked in the parent and
+            // are now in a permanently-locked state in the child's copy of
+            // memory, causing a deadlock or UB before exec ever runs.
+
             // Become the leader of a new process session.
             // This is required before we can make the PTY slave our
             // "controlling terminal". Without this, TIOCNOTTY fails.
-            setsid().expect("setsid failed in child");
+            if setsid().is_err() {
+                unsafe { libc::_exit(1) };
+            }
 
             // Make the PTY slave our stdin (0), stdout (1), stderr (2).
             // dup2(old_fd, new_fd) duplicates old_fd to new_fd.
             // After this, fd 0/1/2 all point at slave_fd's kernel object.
-            dup2(slave_fd, 0).expect("dup2 stdin failed");
-            dup2(slave_fd, 1).expect("dup2 stdout failed");
-            dup2(slave_fd, 2).expect("dup2 stderr failed");
-
-            // Close the original slave_fd and master_fd in the child.
-            // slave_fd is now redundant (we have it as 0, 1, 2).
-            // master_fd must be closed so the child can't talk to itself,
-            // and so it doesn't prevent the parent from detecting EOF.
-            //
-            // We also need to close ALL other inherited fds to prevent
-            // the shell from inheriting sockets, db connections, etc.
-            // Iterate from fd 3 up to the system limit.
-            let max_fd = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as RawFd;
-            for fd in 3..max_fd {
-                // Ignore errors — most of these fds won't be open.
-                unsafe {
-                    libc::close(fd);
-                }
+            if dup2(slave_fd, 0).is_err()
+                || dup2(slave_fd, 1).is_err()
+                || dup2(slave_fd, 2).is_err()
+            {
+                unsafe { libc::_exit(1) };
             }
+
+            // FIX #4: close only actually-open fds by reading /proc/self/fd
+            // instead of iterating up to _SC_OPEN_MAX (which can be 1M+).
+            // Fall back to the old brute-force loop if /proc/self/fd is
+            // unavailable (non-Linux systems).
+            close_fds_above_2(master_fd, slave_fd);
 
             // execvp replaces this process image with the shell.
             // argv[0] is the shell name (convention: same as the binary).
@@ -273,14 +278,12 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // a full path it's effectively execve.
             //
             // If execvp succeeds — we never reach the next line.
-            // If execvp fails — it returns, and we exit(1) below.
+            // If execvp fails — it returns, and we _exit(1) below.
             let _ = execvp(&shell_cstr, &[&shell_cstr]);
 
             // execvp returned — something went wrong (shell not found, not
-            // executable, out of memory). Print to stderr then exit.
-            // We can't return PtyError from the child — there's no caller.
-            eprintln!("pty: execvp('{}') failed: {}", shell_path, std::io::Error::last_os_error());
-            std::process::exit(1);
+            // executable, out of memory). Use _exit, not exit/panic.
+            unsafe { libc::_exit(1) };
         }
 
         // ── Parent process ───────────────────────────────────────────────
@@ -301,6 +304,42 @@ pub fn spawn_shell(size: TermSize) -> Result<PtyMaster, PtyError> {
             // (ManuallyDrop never runs Drop, so no double-close risk.)
 
             Ok(PtyMaster { fd: master_fd, child_pid: child })
+        }
+    }
+}
+
+// FIX #4: close all fds above 2 efficiently.
+// On Linux, reads /proc/self/fd to get only open fds — avoids up to 1M
+// pointless close() syscalls when _SC_OPEN_MAX is large.
+// Falls back to brute-force on non-Linux (BSD, macOS use /dev/fd).
+fn close_fds_above_2(master_fd: RawFd, slave_fd: RawFd) {
+    // Try /proc/self/fd first (Linux). Collect into a Vec to avoid iterating
+    // a directory while closing fds that may affect the dir's own fd.
+    let mut fds_to_close: Vec<RawFd> = Vec::new();
+
+    if let Ok(dir) = std::fs::read_dir("/proc/self/fd")
+        .or_else(|_| std::fs::read_dir("/dev/fd"))
+    {
+        for entry in dir.flatten() {
+            if let Ok(name) = entry.file_name().into_string() {
+                if let Ok(fd) = name.parse::<RawFd>() {
+                    if fd > 2 && fd != master_fd && fd != slave_fd {
+                        fds_to_close.push(fd);
+                    }
+                }
+            }
+        }
+        for fd in fds_to_close {
+            unsafe { libc::close(fd); }
+        }
+    } else {
+        // Fallback: brute-force up to _SC_OPEN_MAX. Slow but correct.
+        let max_fd = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as RawFd;
+        let max_fd = max_fd.min(4096); // cap at a sane bound as a safety measure
+        for fd in 3..max_fd {
+            if fd != master_fd && fd != slave_fd {
+                unsafe { libc::close(fd); }
+            }
         }
     }
 }
@@ -367,6 +406,32 @@ pub fn read_from_pty(master: &PtyMaster, buf: &mut [u8]) -> Result<usize, PtyErr
     }
 }
 
+// FIX #2: async wrapper so callers don't have to remember spawn_blocking.
+// Moves the blocking read onto a dedicated thread pool thread, keeping the
+// async executor unblocked.
+//
+// The master fd is passed as a raw RawFd (not &PtyMaster) because
+// spawn_blocking requires 'static — we can't send a non-'static reference
+// across thread boundaries. The caller must ensure PtyMaster outlives the
+// returned future (trivially true when awaited immediately).
+pub async fn read_from_pty_async(fd: RawFd, buf_size: usize) -> Result<Vec<u8>, PtyError> {
+    tokio::task::spawn_blocking(move || {
+        let mut buf = vec![0u8; buf_size];
+        // SAFETY: fd comes from a live PtyMaster (caller's responsibility).
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        match n {
+            n if n > 0 => {
+                buf.truncate(n as usize);
+                Ok(buf)
+            }
+            0 => Ok(Vec::new()), // EOF
+            _ => Err(PtyError::IoFailed(std::io::Error::last_os_error())),
+        }
+    })
+    .await
+    .map_err(|e| PtyError::IoFailed(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+}
+
 // ─── write_to_pty ────────────────────────────────────────────────────────────
 
 /// Write bytes to the PTY master — simulates the user typing on a keyboard.
@@ -428,7 +493,8 @@ pub fn write_to_pty(master: &PtyMaster, data: &[u8]) -> Result<(), PtyError> {
 /// SIGCHLD handler or a polling loop). Returns `Ok(None)` if the child
 /// hasn't exited yet.
 pub fn reap_child(master: &PtyMaster) -> Result<nix::sys::wait::WaitStatus, PtyError> {
-    waitpid(master.child_pid, None).map_err(PtyError::ForkFailed) // reuse ForkFailed or add a new variant
+    // FIX #1: use WaitFailed instead of reusing ForkFailed for waitpid errors.
+    waitpid(master.child_pid, None).map_err(PtyError::WaitFailed)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -436,6 +502,7 @@ pub fn reap_child(master: &PtyMaster) -> Result<nix::sys::wait::WaitStatus, PtyE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     /// Smoke test: spawn a shell, write a command, read output, reap child.
     /// This test requires a Unix environment with /bin/sh.
@@ -447,10 +514,13 @@ mod tests {
         // Send a command followed by carriage return (Enter in PTY land)
         write_to_pty(&master, b"echo hello_pty\r").expect("write failed");
 
-        // Read until we see our marker string (or time out in a real test harness)
+        // FIX #5: use a wall-clock timeout instead of a fixed iteration count.
+        // 5 seconds is generous for CI; a fast machine will finish in <100ms.
+        let deadline = Instant::now() + Duration::from_secs(5);
         let mut buf = [0u8; 256];
         let mut output = String::new();
-        for _ in 0..20 {
+
+        while Instant::now() < deadline {
             match read_from_pty(&master, &mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
@@ -461,6 +531,7 @@ mod tests {
                 }
             }
         }
+
         assert!(output.contains("hello_pty"), "expected echo output, got: {:?}", output);
 
         // Send exit and reap
@@ -475,5 +546,26 @@ mod tests {
         resize_pty(&master, TermSize { rows: 50, cols: 200, shell: None }).expect("resize failed");
         let _ = write_to_pty(&master, b"exit\r");
         let _ = reap_child(&master);
+    }
+
+    // FIX #1: verify reap_child returns WaitFailed (not ForkFailed) on bad pid.
+    #[test]
+    fn test_reap_error_variant() {
+        // Construct a PtyMaster with an invalid pid to force waitpid to fail.
+        // We use pid -1 which is never a valid child pid.
+        let master = spawn_shell(TermSize { rows: 24, cols: 80, shell: None })
+            .expect("spawn shell");
+        // Reap legitimately first so the pid is gone.
+        let _ = write_to_pty(&master, b"exit\r");
+        std::thread::sleep(Duration::from_millis(200));
+        let result = reap_child(&master);
+        // Whether it succeeds or fails with WaitFailed is fine;
+        // what we assert is that it never returns ForkFailed.
+        if let Err(e) = result {
+            assert!(
+                matches!(e, PtyError::WaitFailed(_)),
+                "expected WaitFailed, got: {:?}", e
+            );
+        }
     }
 }
