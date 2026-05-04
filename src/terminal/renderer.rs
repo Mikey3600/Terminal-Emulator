@@ -131,7 +131,7 @@ mod tests {
         let mut grid = Grid::new(3, 10);
         grid.write_char('X');
         // Mark everything clean, then render — only the cursor MoveTo should appear.
-        grid.mark_all_clean();
+        grid.clear_dirty();
         let buf = render_to_bytes(&grid);
         assert!(!contains_char(&buf, 'X'), "clean cell 'X' should not be re-rendered");
     }
