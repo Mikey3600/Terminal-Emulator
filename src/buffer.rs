@@ -9,7 +9,7 @@
 /// A fixed-capacity circular buffer. Generic over T so it
 /// can store any kind of row (or anything else, really).
 pub struct RingBuffer<T> {
-    buf: Vec<Option<T>>,  
+    buf: Vec<Option<T>>,
     /// Index where the next push will write.
     head: usize,
     /// Number of valid items currently stored (0..=capacity).
@@ -139,7 +139,7 @@ mod tests {
         assert_eq!(rb.get(0), Some(&10)); // oldest
         assert_eq!(rb.get(1), Some(&20));
         assert_eq!(rb.get(2), Some(&30)); // newest
-        assert_eq!(rb.get(3), None);      // out of range
+        assert_eq!(rb.get(3), None); // out of range
     }
 
     #[test]

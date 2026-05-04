@@ -151,39 +151,52 @@ mod tests {
     fn ctrl(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
     }
-    fn normal() -> InputMode { InputMode { application_cursor_keys: false } }
-    fn app() -> InputMode { InputMode { application_cursor_keys: true } }
+    fn normal() -> InputMode {
+        InputMode { application_cursor_keys: false }
+    }
+    fn app() -> InputMode {
+        InputMode { application_cursor_keys: true }
+    }
 
     #[test]
     fn arrow_keys_normal_mode() {
-        assert_eq!(encode_key(key(KeyCode::Up),    normal()), Some(vec![0x1b, b'[', b'A']));
-        assert_eq!(encode_key(key(KeyCode::Down),  normal()), Some(vec![0x1b, b'[', b'B']));
+        assert_eq!(encode_key(key(KeyCode::Up), normal()), Some(vec![0x1b, b'[', b'A']));
+        assert_eq!(encode_key(key(KeyCode::Down), normal()), Some(vec![0x1b, b'[', b'B']));
         assert_eq!(encode_key(key(KeyCode::Right), normal()), Some(vec![0x1b, b'[', b'C']));
-        assert_eq!(encode_key(key(KeyCode::Left),  normal()), Some(vec![0x1b, b'[', b'D']));
+        assert_eq!(encode_key(key(KeyCode::Left), normal()), Some(vec![0x1b, b'[', b'D']));
     }
 
     #[test]
     fn arrow_keys_application_mode() {
-        assert_eq!(encode_key(key(KeyCode::Up),    app()), Some(vec![0x1b, b'O', b'A']));
-        assert_eq!(encode_key(key(KeyCode::Down),  app()), Some(vec![0x1b, b'O', b'B']));
+        assert_eq!(encode_key(key(KeyCode::Up), app()), Some(vec![0x1b, b'O', b'A']));
+        assert_eq!(encode_key(key(KeyCode::Down), app()), Some(vec![0x1b, b'O', b'B']));
         assert_eq!(encode_key(key(KeyCode::Right), app()), Some(vec![0x1b, b'O', b'C']));
-        assert_eq!(encode_key(key(KeyCode::Left),  app()), Some(vec![0x1b, b'O', b'D']));
+        assert_eq!(encode_key(key(KeyCode::Left), app()), Some(vec![0x1b, b'O', b'D']));
     }
 
     #[test]
     fn missing_keys_encoded() {
-        assert_eq!(encode_key(key(KeyCode::Home),     normal()), Some(vec![0x1b, b'[', b'H']));
-        assert_eq!(encode_key(key(KeyCode::End),      normal()), Some(vec![0x1b, b'[', b'F']));
-        assert_eq!(encode_key(key(KeyCode::Delete),   normal()), Some(vec![0x1b, b'[', b'3', b'~']));
-        assert_eq!(encode_key(key(KeyCode::PageUp),   normal()), Some(vec![0x1b, b'[', b'5', b'~']));
-        assert_eq!(encode_key(key(KeyCode::PageDown), normal()), Some(vec![0x1b, b'[', b'6', b'~']));
+        assert_eq!(encode_key(key(KeyCode::Home), normal()), Some(vec![0x1b, b'[', b'H']));
+        assert_eq!(encode_key(key(KeyCode::End), normal()), Some(vec![0x1b, b'[', b'F']));
+        assert_eq!(encode_key(key(KeyCode::Delete), normal()), Some(vec![0x1b, b'[', b'3', b'~']));
+        assert_eq!(encode_key(key(KeyCode::PageUp), normal()), Some(vec![0x1b, b'[', b'5', b'~']));
+        assert_eq!(
+            encode_key(key(KeyCode::PageDown), normal()),
+            Some(vec![0x1b, b'[', b'6', b'~'])
+        );
     }
 
     #[test]
     fn f_keys_encoded() {
-        assert_eq!(encode_key(key(KeyCode::F(1)),  normal()), Some(vec![0x1b, b'O', b'P']));
-        assert_eq!(encode_key(key(KeyCode::F(5)),  normal()), Some(vec![0x1b, b'[', b'1', b'5', b'~']));
-        assert_eq!(encode_key(key(KeyCode::F(12)), normal()), Some(vec![0x1b, b'[', b'2', b'4', b'~']));
+        assert_eq!(encode_key(key(KeyCode::F(1)), normal()), Some(vec![0x1b, b'O', b'P']));
+        assert_eq!(
+            encode_key(key(KeyCode::F(5)), normal()),
+            Some(vec![0x1b, b'[', b'1', b'5', b'~'])
+        );
+        assert_eq!(
+            encode_key(key(KeyCode::F(12)), normal()),
+            Some(vec![0x1b, b'[', b'2', b'4', b'~'])
+        );
     }
 
     #[test]
@@ -194,9 +207,9 @@ mod tests {
 
     #[test]
     fn basic_keys() {
-        assert_eq!(encode_key(key(KeyCode::Enter),     normal()), Some(vec![b'\r']));
-        assert_eq!(encode_key(key(KeyCode::Tab),       normal()), Some(vec![b'\t']));
+        assert_eq!(encode_key(key(KeyCode::Enter), normal()), Some(vec![b'\r']));
+        assert_eq!(encode_key(key(KeyCode::Tab), normal()), Some(vec![b'\t']));
         assert_eq!(encode_key(key(KeyCode::Backspace), normal()), Some(vec![0x7f]));
-        assert_eq!(encode_key(key(KeyCode::Esc),       normal()), Some(vec![0x1b]));
+        assert_eq!(encode_key(key(KeyCode::Esc), normal()), Some(vec![0x1b]));
     }
 }

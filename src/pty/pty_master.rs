@@ -317,9 +317,7 @@ fn close_fds_above_2(master_fd: RawFd, slave_fd: RawFd) {
     // a directory while closing fds that may affect the dir's own fd.
     let mut fds_to_close: Vec<RawFd> = Vec::new();
 
-    if let Ok(dir) = std::fs::read_dir("/proc/self/fd")
-        .or_else(|_| std::fs::read_dir("/dev/fd"))
-    {
+    if let Ok(dir) = std::fs::read_dir("/proc/self/fd").or_else(|_| std::fs::read_dir("/dev/fd")) {
         for entry in dir.flatten() {
             if let Ok(name) = entry.file_name().into_string() {
                 if let Ok(fd) = name.parse::<RawFd>() {
@@ -330,7 +328,9 @@ fn close_fds_above_2(master_fd: RawFd, slave_fd: RawFd) {
             }
         }
         for fd in fds_to_close {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
         }
     } else {
         // Fallback: brute-force up to _SC_OPEN_MAX. Slow but correct.
@@ -338,7 +338,9 @@ fn close_fds_above_2(master_fd: RawFd, slave_fd: RawFd) {
         let max_fd = max_fd.min(4096); // cap at a sane bound as a safety measure
         for fd in 3..max_fd {
             if fd != master_fd && fd != slave_fd {
-                unsafe { libc::close(fd); }
+                unsafe {
+                    libc::close(fd);
+                }
             }
         }
     }
@@ -553,8 +555,8 @@ mod tests {
     fn test_reap_error_variant() {
         // Construct a PtyMaster with an invalid pid to force waitpid to fail.
         // We use pid -1 which is never a valid child pid.
-        let master = spawn_shell(TermSize { rows: 24, cols: 80, shell: None })
-            .expect("spawn shell");
+        let master =
+            spawn_shell(TermSize { rows: 24, cols: 80, shell: None }).expect("spawn shell");
         // Reap legitimately first so the pid is gone.
         let _ = write_to_pty(&master, b"exit\r");
         std::thread::sleep(Duration::from_millis(200));
@@ -562,10 +564,7 @@ mod tests {
         // Whether it succeeds or fails with WaitFailed is fine;
         // what we assert is that it never returns ForkFailed.
         if let Err(e) = result {
-            assert!(
-                matches!(e, PtyError::WaitFailed(_)),
-                "expected WaitFailed, got: {:?}", e
-            );
+            assert!(matches!(e, PtyError::WaitFailed(_)), "expected WaitFailed, got: {:?}", e);
         }
     }
 }

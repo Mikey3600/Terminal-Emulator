@@ -190,7 +190,8 @@ impl Parser {
     fn finalize_osc(&mut self) {
         if let Ok(s) = std::str::from_utf8(&self.osc_buf) {
             // OSC format: "Ps;data" — codes 0, 1, 2 all set the title
-            if let Some(rest) = s.strip_prefix("0;")
+            if let Some(rest) = s
+                .strip_prefix("0;")
                 .or_else(|| s.strip_prefix("1;"))
                 .or_else(|| s.strip_prefix("2;"))
             {
@@ -290,15 +291,25 @@ impl Parser {
                         // 38;5;n — 256-color
                         let n = self.params[i + 2];
                         let color = Color::Indexed(n as u8);
-                        if is_fg { grid.current_attrs.fg = color; } else { grid.current_attrs.bg = color; }
+                        if is_fg {
+                            grid.current_attrs.fg = color;
+                        } else {
+                            grid.current_attrs.bg = color;
+                        }
                         i += 2;
-                    } else if self.params.get(i + 1).copied() == Some(2) && i + 4 < self.params.len() {
+                    } else if self.params.get(i + 1).copied() == Some(2)
+                        && i + 4 < self.params.len()
+                    {
                         // 38;2;r;g;b — true color
                         let r = self.params[i + 2] as u8;
                         let g = self.params[i + 3] as u8;
                         let b = self.params[i + 4] as u8;
                         let color = Color::Rgb(r, g, b);
-                        if is_fg { grid.current_attrs.fg = color; } else { grid.current_attrs.bg = color; }
+                        if is_fg {
+                            grid.current_attrs.fg = color;
+                        } else {
+                            grid.current_attrs.bg = color;
+                        }
                         i += 4;
                     }
                 }
