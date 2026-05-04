@@ -268,20 +268,20 @@ impl Grid {
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        assert!(n < self.rows, "scroll_up: n ({n}) must be < rows ({})", self.rows);
+        assert!(n <= self.rows, "scroll_up: n ({n}) must be <= rows ({})", self.rows);
+        if n == 0 {
+            return;
+        }
 
-        // FIX: removed the duplicate second loop that called
-        // `self.scrollback.push_back(row)` — `push_back` is a VecDeque
-        // method that doesn't exist on `Scrollback`, causing a compile
-        // error. The first loop using `push_line` is the correct path and
-        // is sufficient; the second loop was pure duplication that slipped
-        // in alongside the refactor to the Scrollback wrapper type.
         for row in self.cells.chunks_exact(self.cols).take(n) {
             self.scrollback.push_line(row.to_vec());
         }
 
-        // Shift rows [n..] up to [0..rows-n]
-        self.cells.copy_within(n * self.cols.., 0);
+        // Only copy_within if there are rows to shift up (n < rows).
+        // When n == rows the entire screen is cleared — no shifting needed.
+        if n < self.rows {
+            self.cells.copy_within(n * self.cols.., 0);
+        }
 
         // Clear bottom n rows
         let clear_start = (self.rows - n) * self.cols;
@@ -510,10 +510,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "must be < rows")]
+    #[should_panic(expected = "must be <= rows")]
     fn scroll_up_full_height_panics() {
         let mut g = Grid::new(3, 3);
-        g.scroll_up(3);
+        g.scroll_up(4); // panics only when n > rows
+    }
+
+    #[test]
+    fn scroll_up_full_height_clears_screen() {
+        let mut g = Grid::new(3, 3);
+        g.move_cursor(0, 0);
+        g.write_char('A');
+        g.scroll_up(3); // n == rows — valid, clears entire screen
+        assert_eq!(g.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(g.get(2, 2).unwrap().ch, ' ');
     }
 
     #[test]
