@@ -28,11 +28,11 @@ fn parser_csi_cursor_and_erase_modes() {
 fn parser_newline_scrolls_bottom_row() {
     let mut parser = Parser::new(AnsiCapabilities::default());
     let mut grid = Grid::new(2, 4);
-    parser.feed(b"line1\nline2\nline3", &mut grid);
+    parser.feed(b"ab\ncd\nef", &mut grid);
 
-    assert_eq!(grid.get(0, 0).expect("cell").ch, 'l');
-    assert_eq!(grid.get(0, 1).expect("cell").ch, 'i');
-    assert_eq!(grid.get(1, 0).expect("cell").ch, 'l');
+    assert_eq!(grid.get(1, 0).expect("cell").ch, 'e');
+    assert_eq!(grid.get(1, 1).expect("cell").ch, 'f');
+    assert_eq!(grid.get(0, 0).expect("cell").ch, ' ');
 }
 
 #[test]
