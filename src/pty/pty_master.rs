@@ -431,7 +431,8 @@ pub async fn read_from_pty_async(fd: RawFd, buf_size: usize) -> Result<Vec<u8>, 
         }
     })
     .await
-    .map_err(|e| PtyError::IoFailed(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+    // NEW
+.map_err(|e| PtyError::IoFailed(std::io::Error::other(e)))?
 }
 
 // ─── write_to_pty ────────────────────────────────────────────────────────────
