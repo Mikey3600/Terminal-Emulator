@@ -63,10 +63,12 @@ impl Parser {
             osc_title: None,
         }
     }
-    /// Feeds a chunk of bytes into the parser and applies effects to `grid`.
+    /// Processes incoming terminal bytes and mutates `grid` with the parsed output.
     ///
-    /// This method may be called repeatedly with partial escape sequences; parser
-    /// state is preserved between calls.
+    /// Plain text bytes are written to the grid, control bytes update cursor/grid
+    /// state, and ANSI escape sequences are accumulated and dispatched as their
+    /// final bytes arrive. This method may be called repeatedly with partial
+    /// escape sequences because parser state is preserved between calls.
     pub fn feed(&mut self, bytes: &[u8], grid: &mut Grid) {
         log::debug!("parser_feed_bytes={}", bytes.len());
         for &b in bytes {
